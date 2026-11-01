@@ -24,6 +24,7 @@ COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/prisma ./prisma
 COPY apps/api/scripts ./scripts
+COPY apps/api/rule-sources ./rule-sources
 COPY bin ./bin
 COPY --from=helpers /agent-helper /usr/local/bin/selfguard-agent
 COPY --from=helpers /intelligence-unzip /usr/local/bin/intelligence-unzip
