@@ -6,6 +6,7 @@ WORKDIR /intelligence
 COPY services/intelligence/go.mod services/intelligence/*.go ./
 RUN go test ./... && CGO_ENABLED=0 go build -trimpath -o /intelligence-unzip .
 FROM node:22.22.0-bookworm-slim AS build
+RUN apt-get update && apt-get install -y --no-install-recommends openssl ca-certificates && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY apps/api/package*.json ./
 RUN npm ci --no-audit --no-fund
