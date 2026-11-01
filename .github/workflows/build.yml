@@ -17,7 +17,7 @@ jobs:
       - name: Build immutable candidate components
         run: |
           docker build --target runtime --build-arg SOURCE_REVISION="$GITHUB_SHA" -t self-guard-ci:app .
-          docker build --target runtime -f services/waf/Dockerfile -t self-guard-ci:waf .
+          docker build --target runtime --build-arg SOURCE_REVISION="$GITHUB_SHA" -f services/waf/Dockerfile -t self-guard-ci:waf .
       - name: Verify complete production topology in isolation
         run: node scripts/deployment-ci.cjs
       - name: Package static assets and deployment files

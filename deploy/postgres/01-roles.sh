@@ -9,6 +9,7 @@ CREATE ROLE selfguard_runtime LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLIC
 CREATE ROLE selfguard_migrator LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION PASSWORD :'migrator_password';
 REVOKE ALL ON DATABASE selfguard FROM PUBLIC;
 GRANT CONNECT ON DATABASE selfguard TO selfguard_runtime,selfguard_migrator;
+GRANT CREATE ON DATABASE selfguard TO selfguard_migrator;
 REVOKE ALL ON SCHEMA public FROM PUBLIC;
 ALTER SCHEMA public OWNER TO selfguard_migrator;
 GRANT USAGE ON SCHEMA public TO selfguard_runtime;

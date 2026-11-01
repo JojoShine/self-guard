@@ -36,7 +36,7 @@ GHCR镜像为私有，部署前核对具备读取当前仓库包权限的只读�
 5. 准备`data/intelligence`、`data/agent-artifacts`归属1000:1000，`data/waf`归属10001:10001。Agent制品和情报原始文件需要与数据库目录配套；数据库中有目录不代表对应文件已存在。
 6. 加密密钥、任务签名密钥、Agent发行公钥及组件令牌使用独立受限配置。迁移现有加密记录时，保留相应加密密钥；不得临时生成新密钥导致现有连接/证书无法解密。签名私钥不进入前端或Agent下载包。
 
-数据库初始化入口只在空卷执行：创建`selfguard_bootstrap`管理账号、受限`selfguard_migrator`和`selfguard_runtime`，将public schema交给迁移角色；运行角色只有所需DML、序列读取和迁移历史只读权限。迁移账号不能创建角色或数据库；运行账号不能建表或修改迁移历史。已有卷不重复初始化，不通过删卷修复故障。
+数据库初始化入口只在空卷执行：创建`selfguard_bootstrap`管理账号、受限`selfguard_migrator`和`selfguard_runtime`，将public schema交给迁移角色；运行角色只有所需DML、序列读取和迁移历史只读权限。迁移账号拥有本数据库内创建schema所需的CREATE权限，但没有全局CREATEDB或CREATEROLE权限，不能创建其他数据库或角色；运行账号不能建表或修改迁移历史。已有卷不重复初始化，不通过删卷修复故障。
 
 ## 部署顺序
 
