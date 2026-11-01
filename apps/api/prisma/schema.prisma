@@ -1,0 +1,787 @@
+generator client {
+ provider = "prisma-client-js"
+}
+datasource db {
+ provider = "postgresql"
+ url = env("DATABASE_URL")
+}
+model User {
+ dataScope Json @default("{}")
+ id String @id @default(uuid())
+ email String @unique
+ name String
+ passwordHash String
+ role String @default("VIEWER")
+ disabled Boolean @default(false)
+ createdAt DateTime @default(now())
+ sessions Session[]
+}
+model Session {
+ id String @id @default(uuid())
+ tokenHash String @unique
+ userId String
+ user User @relation(fields:[userId], references:[id], onDelete:Cascade)
+ expiresAt DateTime
+}
+model Asset {
+ remoteAccess AssetRemoteAccess?
+ remoteJobs AssetRemoteJob[]
+ executorPublicKey String?
+ archivedAt DateTime?
+ id String @id @default(uuid())
+ identity String? @unique
+ hostname String
+ os String
+ osDistribution String?
+ osVersion String?
+ ip String?
+ business String?
+ owner String?
+ tags String[] @default([])
+ importance String @default("NORMAL")
+ inventory Json @default("{}")
+ tokenHash String? @unique
+ lastSeen DateTime?
+ createdAt DateTime @default(now())
+ updatedAt DateTime @updatedAt
+ findings Finding[]
+ tasks Task[]
+}
+model Finding {
+ readAt DateTime?
+ relatedRiskId String?
+ id String @id @default(uuid())
+ dedupKey String @unique
+ externalId String
+ title String
+ kind String
+ severity String
+ status String @default("OPEN")
+ source String
+ evidence String
+ assetId String?
+ asset Asset? @relation(fields:[assetId],references:[id])
+ owner String?
+ reason String?
+ expiresAt DateTime?
+ dueAt DateTime?
+ occurrences Int @default(1)
+ createdAt DateTime @default(now())
+ updatedAt DateTime @updatedAt
+ tasks Task[]
+ links IncidentFinding[]
+ @@index([status,kind,severity])
+}
+model Incident {
+ type String @default("OTHER")
+ assetIds String[] @default([])
+ taskIds String[] @default([])
+ remainingRisks String @default("")
+ id String @id @default(uuid())
+ title String
+ severity String
+ status String @default("OPEN")
+ description String @default("")
+ owner String?
+ conclusion String?
+ verification String?
+ createdAt DateTime @default(now())
+ updatedAt DateTime @updatedAt
+ links IncidentFinding[]
+}
+model IncidentFinding {
+ incidentId String
+ findingId String
+ incident Incident @relation(fields:[incidentId],references:[id],onDelete:Cascade)
+ finding Finding @relation(fields:[findingId],references:[id],onDelete:Cascade)
+ @@id([incidentId,findingId])
+}
+model Rule {
+ id String @id @default(uuid())
+ intervalSeconds Int?
+ nextRunAt DateTime?
+ name String
+ kind String
+ enabled Boolean @default(true)
+ severity String
+ config Json
+ version Int @default(1)
+ createdAt DateTime @default(now())
+ updatedAt DateTime @updatedAt
+}
+model Task {
+ batchId String?
+ notBefore DateTime?
+ windowEnd DateTime?
+ rollbackOf String?
+ id String @id @default(uuid())
+ title String
+ assetId String
+ asset Asset @relation(fields:[assetId],references:[id])
+ findingId String?
+ finding Finding? @relation(fields:[findingId],references:[id])
+ template String
+ templateVersion String @default("1")
+ parameters Json
+ status String @default("PENDING")
+ requestedBy String
+ approvedBy String?
+ reason String?
+ result Json?
+ verification Json?
+ expiresAt DateTime
+ claimedAt DateTime?
+ completedAt DateTime?
+ createdAt DateTime @default(now())
+ updatedAt DateTime @updatedAt
+ @@index([assetId,status])
+}
+model Site {
+ id String @id @default(uuid())
+ name String
+ hostname String @unique
+ upstream String
+ mode String @default("OBSERVE")
+ enabled Boolean @default(true)
+ config Json @default("{}")
+ version Int @default(1)
+ ruleDeploymentId String?
+ createdAt DateTime @default(now())
+ updatedAt DateTime @updatedAt
+}
+model WafRuleReplay {
+ id String @id @default(uuid())
+ bundleId String
+ bundleSha256 String
+ engine String
+ sampleSha256 String
+ threshold Int @default(5)
+ expectedBlocked Boolean
+ actualBlocked Boolean
+ expectedStatus Int?
+ actualStatus Int
+ passed Boolean
+ result Json
+ actor String
+ createdAt DateTime @default(now())
+ @@index([bundleId,createdAt])
+}
+model WafRuleDeployment {
+ id String @id @default(uuid())
+ siteId String
+ siteVersion Int
+ bundleId String?
+ bundleSha256 String
+ mode String
+ threshold Int
+ envelope Json
+ previousId String?
+ actor String
+ reason String
+ createdAt DateTime @default(now())
+ @@unique([siteId,siteVersion])
+ @@index([bundleId,createdAt])
+}
+model WafEvent {
+ context Json?
+ id String @id
+ siteId String
+ ruleId String
+ path String
+ method String
+ action String
+ remoteIp String
+ timestamp DateTime
+ inspection Json?
+ createdAt DateTime @default(now())
+ @@index([siteId,createdAt])
+}
+model Audit {
+ id String @id @default(uuid())
+ actor String
+ action String
+ resource String
+ resourceId String?
+ detail Json @default("{}")
+ createdAt DateTime @default(now())
+ @@index([resourceId,createdAt])
+}
+model Comment {
+ id String @id @default(uuid())
+ resource String
+ resourceId String
+ author String
+ body String
+ createdAt DateTime @default(now())
+ @@index([resource,resourceId])
+}
+model Evaluation {
+ id String @id @default(uuid())
+ ruleId String
+ ruleName String
+ kind String
+ assetId String
+ status String
+ matched Boolean
+ evidence String
+ createdAt DateTime @default(now())
+ @@index([ruleId,createdAt])
+}
+model WafNode {
+ stats Json @default("{}")
+ id String @id
+ version String
+ sites Json
+ droppedEvents Int @default(0)
+ startedAt DateTime
+ lastSeen DateTime @default(now())
+}
+model Attachment {
+ id String @id @default(uuid())
+ resource String
+ resourceId String
+ name String
+ contentType String
+ size Int
+ data Bytes
+ author String
+ createdAt DateTime @default(now())
+ @@index([resource,resourceId])
+}
+model Revision {
+ id String @id @default(uuid())
+ resource String
+ resourceId String
+ version Int
+ snapshot Json
+ actor String
+ createdAt DateTime @default(now())
+ @@unique([resource,resourceId,version])
+}
+model Setting {
+ key String @id
+ value Json
+ updatedAt DateTime @updatedAt
+}
+model Notification {
+ id String @id @default(uuid())
+ userId String
+ title String
+ resource String
+ resourceId String?
+ readAt DateTime?
+ createdAt DateTime @default(now())
+ @@index([userId,createdAt])
+}
+model ImportBatch {
+ id String @id @default(uuid())
+ actor String
+ status String
+ items Json
+ result Json?
+ error String?
+ createdAt DateTime @default(now())
+ updatedAt DateTime @updatedAt
+}
+model TaskBatch {
+ id String @id @default(uuid())
+ title String
+ status String @default("PENDING")
+ stopOnFailure Boolean @default(true)
+ createdBy String
+ createdAt DateTime @default(now())
+}
+model WafAccess {
+ context Json?
+ id String @id
+ nodeId String
+ siteId String
+ method String
+ path String
+ status Int
+ timestamp DateTime
+ durationMicros Int
+ @@index([nodeId,timestamp])
+}
+model AdvisorySource {
+ id String @id @default(uuid())
+ name String
+ url String @unique
+ format String @default("OSV")
+ enabled Boolean @default(true)
+ lastSyncAt DateTime?
+ status String @default("IDLE")
+ error String?
+ createdAt DateTime @default(now())
+ updatedAt DateTime @updatedAt
+}
+model AgentRollout {
+ id String @id @default(cuid())
+ version String
+ envelope Json
+ artifactUrl String
+ status String @default("DRAFT")
+ batchSize Int @default(1)
+ targetIds Json
+ createdAt DateTime @default(now())
+ updatedAt DateTime @updatedAt
+ targets AgentRolloutTarget[]
+}
+model AgentRolloutTarget {
+ id String @id @default(cuid())
+ rolloutId String
+ rollout AgentRollout @relation(fields:[rolloutId],references:[id],onDelete:Cascade)
+ assetId String
+ ordinal Int
+ status String @default("PENDING")
+ claimedAt DateTime?
+ reportedAt DateTime?
+ evidence String?
+ @@unique([rolloutId,assetId])
+}
+model TelemetryEvent {
+ id String @id @default(uuid())
+ source String
+ externalId String
+ sourceKey String
+ assetId String?
+ siteId String?
+ occurredAt DateTime
+ receivedAt DateTime @default(now())
+ expiresAt DateTime
+ type String
+ data Json
+ @@unique([sourceKey,externalId])
+ @@index([assetId,occurredAt])
+ @@index([siteId,occurredAt])
+ @@index([expiresAt])
+}
+model CorrelationRule {
+ id String @id @default(uuid())
+ name String
+ severity String
+ enabled Boolean @default(true)
+ config Json
+ createdAt DateTime @default(now())
+ updatedAt DateTime @updatedAt
+}
+model CorrelationMatch {
+ id String @id @default(uuid())
+ ruleId String
+ groupKey String
+ windowStart DateTime
+ findingId String
+ incidentId String?
+ @@unique([ruleId,groupKey,windowStart])
+}
+model Delivery {
+ id String @id
+ userId String
+ notificationId String
+ status String @default("PENDING")
+ attempts Int @default(0)
+ availableAt DateTime @default(now())
+ lastError String?
+ createdAt DateTime @default(now())
+ updatedAt DateTime @updatedAt
+}
+model SiteCertificate {
+ id String @id @default(uuid())
+ hostname String @unique
+ certificate String
+ keyCiphertext String
+ notAfter DateTime
+ version Int @default(1)
+ enabled Boolean @default(true)
+ createdAt DateTime @default(now())
+ updatedAt DateTime @updatedAt
+}
+model AssetChange {
+ id String @id @default(uuid())
+ assetId String
+ actor String
+ changes Json
+ createdAt DateTime @default(now())
+ @@index([assetId,createdAt])
+}
+
+model BusinessGroup {
+ id String @id @default(uuid())
+ name String @unique
+ createdAt DateTime @default(now())
+}
+model AgentRelease {
+ id String @id @default(uuid())
+ version String
+ sequence Int
+ architecture String
+ manifestBytes String
+ signature String
+ sha256 String
+ size Int
+ expiresAt DateTime
+ sourceDigest String
+ license String
+ sbom Json
+ channel String @default("stable")
+ status String @default("DRAFT")
+ author String
+ createdAt DateTime @default(now())
+ publishedAt DateTime?
+ revokedAt DateTime?
+ installations AgentInstallation[]
+ packages AgentReleasePackage[]
+ @@unique([sequence,architecture])
+ @@unique([version,architecture])
+ @@index([status,channel,createdAt])
+}
+model AgentReleasePackage {
+ id String @id @default(uuid())
+ releaseId String
+ release AgentRelease @relation(fields:[releaseId],references:[id])
+ format String
+ sha256 String
+ size Int
+ manifestBytes String
+ signature String
+ expiresAt DateTime
+ status String @default("DRAFT")
+ author String
+ createdAt DateTime @default(now())
+ publishedAt DateTime?
+ @@unique([releaseId,format])
+ @@index([releaseId,status])
+}
+model AgentInstallation {
+ id String @id @default(uuid())
+ releaseId String
+ release AgentRelease @relation(fields:[releaseId],references:[id])
+ ownerId String
+ profile Json
+ ticketHash String @unique
+ expiresAt DateTime
+ claimedIdentity String?
+ credentialHash String?
+ leaseUntil DateTime?
+ assetId String?
+ challenge String
+ status String @default("WAITING")
+ detail String @default("")
+ revokedAt DateTime?
+ createdAt DateTime @default(now())
+ updatedAt DateTime @updatedAt
+ @@index([ownerId,createdAt])
+ @@index([assetId])
+}
+model AgentInstallBatch {
+ id String @id @default(uuid())
+ name String
+ ownerId String
+ releaseId String
+ profile Json
+ credential String
+ username String
+ port Int @default(22)
+ concurrency Int @default(5)
+ stopOnFailure Boolean @default(true)
+ status String @default("DRAFT")
+ createdAt DateTime @default(now())
+ updatedAt DateTime @updatedAt
+ targets AgentInstallTarget[]
+ @@index([ownerId,createdAt])
+}
+model AgentInstallTarget {
+ id String @id @default(uuid())
+ batchId String
+ batch AgentInstallBatch @relation(fields:[batchId],references:[id],onDelete:Cascade)
+ assetId String
+ address String
+ hostKey String
+ ordinal Int
+ status String @default("WAITING")
+ installationId String?
+ leaseUntil DateTime?
+ attempts Int @default(0)
+ detail String @default("")
+ updatedAt DateTime @updatedAt
+ @@unique([batchId,assetId])
+ @@index([status,leaseUntil])
+ @@index([installationId])
+}
+model WafRuleBundle {
+ id String @id @default(uuid())
+ name String
+ version String
+ source String
+ license String
+ sha256 String
+ profile String @default("inbound-PL1")
+ parentId String?
+ files Json
+ status String @default("CANDIDATE")
+ report Json?
+ checkedAt DateTime?
+ author String
+ createdAt DateTime @default(now())
+ updatedAt DateTime @updatedAt
+ @@unique([source,version,sha256])
+ @@index([createdAt])
+}
+
+model VulnerabilityFeed {
+ id String @id @default(uuid())
+ name String
+ provider String
+ config Json
+ configHash String
+ enabled Boolean @default(true)
+ intervalSeconds Int @default(86400)
+ staleAfterHours Int @default(72)
+ status String @default("IDLE")
+ currentSnapshotId String?
+ lastSuccessAt DateTime?
+ nextSyncAt DateTime @default(now())
+ leaseId String?
+ leaseUntil DateTime?
+ error String?
+ createdAt DateTime @default(now())
+ updatedAt DateTime @updatedAt
+ snapshots VulnerabilitySnapshot[]
+ @@unique([provider,configHash])
+ @@index([enabled,nextSyncAt])
+}
+model VulnerabilitySnapshot {
+ id String @id @default(uuid())
+ feedId String
+ feed VulnerabilityFeed @relation(fields:[feedId],references:[id],onDelete:Cascade)
+ config Json
+ status String @default("STAGING")
+ version String?
+ contentSha256 String?
+ sourceSha256 String?
+ normalizerVersion String @default("selfguard-intelligence-v1")
+ artifactSha256 String?
+ artifact IntelligenceArtifact? @relation(fields:[artifactSha256],references:[sha256],onDelete:Restrict)
+ reservedArtifactBytes Int @default(0)
+ sourceManifest Json @default("{}")
+ sourceUrl String
+ license String
+ coverage String?
+ recordCount Int @default(0)
+ error String?
+ startedAt DateTime @default(now())
+ completedAt DateTime?
+ records VulnerabilityRecord[]
+ @@index([feedId,startedAt])
+ @@index([artifactSha256])
+}
+model IntelligenceArtifact {
+ sha256 String @id
+ size Int
+ encoding String
+ createdAt DateTime @default(now())
+ snapshots VulnerabilitySnapshot[]
+}
+model VulnerabilityRecord {
+ id String @id @default(uuid())
+ snapshotId String
+ snapshot VulnerabilitySnapshot @relation(fields:[snapshotId],references:[id],onDelete:Cascade)
+ externalId String
+ aliases String[]
+ summary String
+ details String
+ severity String?
+ scores Json @default("[]")
+ purpose String
+ affected Json @default("[]")
+ packages String[] @default([])
+ references Json @default("[]")
+ metadata Json @default("{}")
+ modifiedAt DateTime?
+ withdrawnAt DateTime?
+ rawSha256 String
+ normalizedSha256 String?
+ @@unique([snapshotId,externalId])
+ @@index([aliases],type:Gin)
+ @@index([packages],type:Gin)
+}
+
+model ScanExecutionIdentity {
+ id String @id @default(uuid())
+ name String
+ scope Json
+ enabled Boolean @default(true)
+ version Int @default(1)
+ approvedBy String
+ approvedAt DateTime @default(now())
+ createdAt DateTime @default(now())
+ updatedAt DateTime @updatedAt
+ plans ScanPlan[]
+ @@index([enabled,createdAt])
+}
+model ScanPlan {
+ executionIdentityId String?
+ executionIdentityVersion Int?
+ executionIdentity ScanExecutionIdentity? @relation(fields:[executionIdentityId],references:[id],onDelete:Restrict)
+ configuration Json?
+ id String @id @default(uuid())
+ name String
+ kind String @default("INVENTORY")
+ creatorId String
+ scope Json
+ feedIds String[]
+ enabled Boolean @default(true)
+ intervalSeconds Int?
+ timing Json?
+ nextRunAt DateTime?
+ version Int @default(1)
+ createdAt DateTime @default(now())
+ updatedAt DateTime @updatedAt
+ runs ScanRun[]
+ @@index([enabled,nextRunAt])
+ @@index([executionIdentityId])
+}
+model ScanRun {
+ executionIdentity Json?
+ id String @id @default(uuid())
+ planId String
+ plan ScanPlan @relation(fields:[planId],references:[id],onDelete:Restrict)
+ planVersion Int
+ timing Json?
+ trigger String
+ status String @default("QUEUED")
+ scope Json
+ sources Json
+ leaseId String?
+ leaseUntil DateTime?
+ error String?
+ summary Json @default("{}")
+ createdAt DateTime @default(now())
+ completedAt DateTime?
+ targets ScanTarget[]
+ @@index([status,leaseUntil])
+}
+model ScanTarget {
+ probes ScanProbe[]
+ id String @id @default(uuid())
+ runId String
+ run ScanRun @relation(fields:[runId],references:[id],onDelete:Cascade)
+ assetId String
+ hostname String
+ inventory Json
+ inventoryAt DateTime?
+ inventorySha256 String
+ status String @default("PENDING")
+ reason String?
+ result Json?
+ attempts Int @default(0)
+ httpRequests Int @default(0)
+ completedAt DateTime?
+ @@unique([runId,assetId])
+ @@index([runId,status])
+}
+
+model ScanBudgetBucket {
+ key String @id
+ nextAllowedAt DateTime
+ updatedAt DateTime @updatedAt
+ @@index([updatedAt])
+}
+
+model ScanEndpoint {
+ id String @id @default(uuid())
+ assetId String
+ name String
+ hostname String
+ port Int
+ protocol String
+ allowedPaths String[]
+ excludedPaths String[]
+ approvedAddresses String[] @default([])
+ status String @default("DRAFT")
+ version Int @default(1)
+ configHash String
+ approvalHash String?
+ approvedAt DateTime?
+ approvedBy String?
+ creatorId String
+ createdAt DateTime @default(now())
+ updatedAt DateTime @updatedAt
+ @@unique([assetId,hostname,port,protocol])
+ @@index([status,assetId])
+}
+
+model ProbeTemplate {
+ id String @id @default(uuid())
+ name String
+ purpose String
+ severity String
+ sourceKind String @default("LOCAL")
+ definition Json
+ samples Json
+ status String @default("DRAFT")
+ version Int @default(1)
+ configHash String
+ validationReport Json?
+ validatedHash String?
+ validatedAt DateTime?
+ approvalHash String?
+ approvedAt DateTime?
+ approvedBy String?
+ creatorId String
+ createdAt DateTime @default(now())
+ updatedAt DateTime @updatedAt
+ @@index([status,purpose])
+}
+
+model ScanProbe {
+ id String @id @default(uuid())
+ targetId String
+ target ScanTarget @relation(fields:[targetId],references:[id],onDelete:Cascade)
+ endpointId String
+ templateId String
+ endpointIndex Int
+ checkIndex Int
+ endpointName String
+ templateName String
+ severity String
+ remediation String
+ status String @default("PENDING")
+ reason String?
+ attempts Int @default(0)
+ result Json?
+ findingId String?
+ startedAt DateTime?
+ completedAt DateTime?
+ createdAt DateTime @default(now())
+ @@unique([targetId,endpointIndex,checkIndex])
+ @@index([targetId,status])
+}
+
+model AssetRemoteAccess {
+ asset Asset @relation(fields:[assetId],references:[id],onDelete:Cascade)
+ assetId String @id
+ address String
+ username String
+ port Int
+ hostKey String
+ credential String
+ updatedAt DateTime @updatedAt
+}
+model AssetRemoteJob {
+ asset Asset @relation(fields:[assetId],references:[id],onDelete:Cascade)
+ id String @id @default(uuid())
+ assetId String
+ ownerId String
+ address String
+ accessUpdatedAt DateTime
+ config Json
+ status String @default("QUEUED")
+ detail String @default("等待执行")
+ result Json?
+ leaseUntil DateTime?
+ createdAt DateTime @default(now())
+ updatedAt DateTime @updatedAt
+ @@index([status,createdAt])
+ @@index([assetId,createdAt])
+}

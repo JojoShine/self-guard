@@ -1,0 +1,110 @@
+name: selfguard-dev
+services:
+  postgres:
+    image: postgres:17-bookworm
+    environment:
+      POSTGRES_USER: selfguard
+      POSTGRES_DB: selfguard
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+    volumes:
+      - ./.artifacts/postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: [CMD-SHELL, pg_isready -U selfguard]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile.dev
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m,mode=1777
+    image: selfguard-api-dev:22-ssh
+    working_dir: /app
+    volumes:
+      - ./apps/api:/app
+      - ./.artifacts/bin:/opt/selfguard:ro
+      - ./.artifacts/runtime:/runtime:ro
+      - ./.artifacts/intelligence-artifacts:/intelligence-artifacts
+    environment:
+      DATABASE_URL: postgresql://selfguard:${POSTGRES_PASSWORD}@postgres:5432/selfguard
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@selfguard.local}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?set ADMIN_PASSWORD}
+      ENROLLMENT_TOKEN: ${ENROLLMENT_TOKEN:?set ENROLLMENT_TOKEN}
+      WAF_TOKEN: ${WAF_TOKEN:?set WAF_TOKEN}
+      LD_LIBRARY_PATH: /runtime
+      PATH: /runtime:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+      TASK_SIGNING_PRIVATE_KEY: ${TASK_SIGNING_PRIVATE_KEY:-}
+      DATA_ENCRYPTION_KEY: ${DATA_ENCRYPTION_KEY:-}
+      DATA_ENCRYPTION_PREVIOUS_KEY: ${DATA_ENCRYPTION_PREVIOUS_KEY:-}
+      AGENT_UPGRADE_PUBLIC_KEY: ${AGENT_UPGRADE_PUBLIC_KEY:-}
+      AGENT_UPGRADE_ORIGINS: ${AGENT_UPGRADE_ORIGINS:-}
+      AGENT_PLATFORM_URL: ${AGENT_PLATFORM_URL:-}
+      AGENT_PLATFORM_CA_PEM: ${AGENT_PLATFORM_CA_PEM:-}
+      HOST_WAF_IMAGE: ${HOST_WAF_IMAGE:-}
+      WAF_TEST_URL: http://waf:8082
+      INTELLIGENCE_HTTPS_PROXY: ${INTELLIGENCE_HTTPS_PROXY:-}
+      INTELLIGENCE_ARTIFACT_DIR: /intelligence-artifacts
+      INTELLIGENCE_ARTIFACT_QUOTA_BYTES: ${INTELLIGENCE_ARTIFACT_QUOTA_BYTES:-}
+      WAF_DEVELOPMENT: 'true'
+      AGENT_RULE_TEST_BINARY: /opt/selfguard/agent
+      PORT: 4000
+    command: sh -c 'npx prisma generate && npx prisma migrate deploy && npx tsx prisma/seed.ts && npm run build && node dist/main.js'
+    ports:
+      - 127.0.0.1:4010:4000
+    depends_on:
+      postgres:
+        condition: service_healthy
+  web:
+    image: node:22-bookworm-slim
+    working_dir: /app
+    volumes:
+      - ./apps/web:/app
+    environment:
+      API_PROXY_TARGET: http://api:4000
+    command: sh -c 'npm run dev -- --host 0.0.0.0'
+    ports:
+      - 127.0.0.1:5180:5173
+    depends_on:
+      - api
+
+  backup:
+    image: postgres:17-bookworm
+    environment:
+      PGHOST: postgres
+      PGUSER: selfguard
+      PGDATABASE: selfguard
+      PGPASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+    volumes:
+      - ./scripts/scheduled-backup.sh:/scripts/scheduled-backup.sh:ro
+      - ./scripts/verify-intelligence-backup.sh:/scripts/verify-intelligence-backup.sh:ro
+      - ./.artifacts/backups:/backups
+      - ./.artifacts/intelligence-artifacts:/intelligence-artifacts:ro
+    command: [sh, /scripts/scheduled-backup.sh]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  waf:
+    image: selfguard-waf:crs-foundation
+    build:
+      context: .
+      dockerfile: services/waf/Dockerfile.local-runtime
+    environment:
+      WAF_API_URL: http://api:4000
+      WAF_DEVELOPMENT: 'true'
+      WAF_TOKEN: ${WAF_TOKEN:?set WAF_TOKEN}
+      WAF_NODE_ID: local-waf
+      WAF_CONFIG: /state/config.json
+      WAF_STATE_DIR: /state
+      WAF_REMOTE_CERTIFICATES: 'true'
+      WAF_TEST_LISTEN: ':8082'
+    volumes:
+      - ./.artifacts/bin:/opt/selfguard:ro
+      - ./.artifacts/waf-state:/state
+    ports:
+      - 127.0.0.1:5183:8081
+    depends_on:
+      - api
+    restart: unless-stopped

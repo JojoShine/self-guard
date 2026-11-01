@@ -1,0 +1,33 @@
+[Unit]
+Description=Self Guard signed privileged task executor
+After=local-fs.target
+
+[Service]
+Type=simple
+User=root
+# Provision this group and the collector's stable numeric UID before deployment.
+Group=selfguard-agent
+ExecStart=/opt/selfguard-agent/current --executor
+Environment=AGENT_CONFIG=/etc/selfguard-agent/executor.json
+Restart=on-failure
+RestartSec=10
+RuntimeDirectory=selfguard-executor
+RuntimeDirectoryMode=0750
+StateDirectory=selfguard-executor
+StateDirectoryMode=0700
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+ReadWritePaths=/run/selfguard-executor /var/lib/selfguard-executor /srv/selfguard-managed /opt/selfguard-agent
+MemoryMax=128M
+TasksMax=16
+
+[Install]
+WantedBy=multi-user.target

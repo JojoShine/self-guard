@@ -1,0 +1,2 @@
+import {assetURL} from './urls';
+export function Brand({compact=false,light=false}:{compact?:boolean;light?:boolean}){return <span className={'brand-lockup'+(compact?' brand-lockup--compact':'')+(light?' brand-lockup--light':'')}><img src={assetURL("brand/selfguard-mark.png")} alt="Self Guard 标志" width={40} height={40}/>{!compact&&<span className="brand-wordmark">Self Guard<small>安全运营平台</small></span>}</span>}

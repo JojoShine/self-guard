@@ -1,0 +1,21 @@
+name: CI
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  check:
+    if: github.event_name == 'pull_request'
+    permissions: {contents: read}
+    uses: ./.github/workflows/build.yml
+    with: {publish: false}
+  candidate:
+    if: github.event_name == 'push'
+    permissions: {contents: read, packages: write}
+    uses: ./.github/workflows/build.yml
+    with: {publish: true}

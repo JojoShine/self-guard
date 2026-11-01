@@ -1,0 +1,2 @@
+ALTER TABLE "WafAccess" ADD COLUMN "context" JSONB;
+ALTER TABLE "WafEvent" ADD COLUMN "context" JSONB;

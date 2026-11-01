@@ -1,0 +1,11 @@
+# Build context is .artifacts/waf-runtime, populated by build-waf-local.sh.
+FROM selfguard-waf-toolchain:1.27.3-pcre2 AS libraries
+FROM scratch
+COPY --from=libraries /lib/ /lib/
+COPY --from=libraries /usr/lib/libpcre2-8.so.0* /usr/lib/
+COPY --from=libraries /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+COPY waf /waf
+USER 10001:10001
+ENV WAF_STATE_DIR=/state
+EXPOSE 8081
+ENTRYPOINT ["/waf"]

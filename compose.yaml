@@ -1,0 +1,69 @@
+name: selfguard
+services:
+  postgres:
+    image: postgres:17-bookworm
+    environment:
+      POSTGRES_USER: selfguard
+      POSTGRES_DB: selfguard
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: [CMD-SHELL, pg_isready -U selfguard]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+  api:
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m,mode=1777
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    environment:
+      DATABASE_URL: postgresql://selfguard:${POSTGRES_PASSWORD}@postgres:5432/selfguard
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@selfguard.local}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?set ADMIN_PASSWORD}
+      ENROLLMENT_TOKEN: ${ENROLLMENT_TOKEN:?set ENROLLMENT_TOKEN}
+      WAF_TOKEN: ${WAF_TOKEN:?set WAF_TOKEN}
+      TASK_SIGNING_PRIVATE_KEY: ${TASK_SIGNING_PRIVATE_KEY:-}
+      DATA_ENCRYPTION_KEY: ${DATA_ENCRYPTION_KEY:-}
+      DATA_ENCRYPTION_PREVIOUS_KEY: ${DATA_ENCRYPTION_PREVIOUS_KEY:-}
+      AGENT_UPGRADE_PUBLIC_KEY: ${AGENT_UPGRADE_PUBLIC_KEY:-}
+      AGENT_UPGRADE_ORIGINS: ${AGENT_UPGRADE_ORIGINS:-}
+      AGENT_PLATFORM_URL: ${AGENT_PLATFORM_URL:-}
+      AGENT_PLATFORM_CA_PEM: ${AGENT_PLATFORM_CA_PEM:-}
+      AGENT_ARTIFACT_DIR: /var/lib/selfguard/agent-artifacts
+      PORT: 4000
+    volumes:
+      - agent_artifacts:/var/lib/selfguard/agent-artifacts
+    ports:
+      - 127.0.0.1:4010:4000
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+  web:
+    build: ./apps/web
+    ports:
+      - 127.0.0.1:5180:80
+    depends_on:
+      - api
+    restart: unless-stopped
+  backup:
+    image: postgres:17-bookworm
+    environment:
+      PGHOST: postgres
+      PGUSER: selfguard
+      PGDATABASE: selfguard
+      PGPASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+    volumes:
+      - ./scripts/scheduled-backup.sh:/scripts/scheduled-backup.sh:ro
+      - ./.artifacts/backups:/backups
+    command: [sh, /scripts/scheduled-backup.sh]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+volumes:
+  postgres_data:
+  agent_artifacts:

@@ -1,0 +1,8 @@
+const {PrismaClient}=require('@prisma/client');const {randomBytes}=require('node:crypto');const {spawnSync}=require('node:child_process');
+(async()=>{for(const [prefix,file,flag] of [['rule-tools','rule-tools.test.ts','RULE_TOOLS_TEST_ISOLATED'],['storage','storage.test.ts','GOVERNANCE_TEST_ISOLATED'],['governance','governance.test.ts','GOVERNANCE_TEST_ISOLATED'],['advisories','advisories.test.ts','GOVERNANCE_TEST_ISOLATED'],['maintenance','maintenance.test.ts','GOVERNANCE_TEST_ISOLATED'],['executor-flow','executor-flow.test.ts','GOVERNANCE_TEST_ISOLATED'],['certificates','certificates.test.ts','CERTIFICATE_TEST_ISOLATED'],['correlation','correlation.test.ts','CORRELATION_TEST_ISOLATED']]){
+ const db=new PrismaClient();const schema=(prefix==='rule-tools'?'rule_tools_test_':prefix==='correlation'?'correlation_test_':prefix==='certificates'?'certificate_test_':'governance_test_')+randomBytes(8).toString('hex');
+ try{await db.$executeRawUnsafe('CREATE SCHEMA "'+schema+'"');const url=new URL(process.env.DATABASE_URL);url.searchParams.set('schema',schema);const env={...process.env,DATABASE_URL:url.toString(),[flag]:'true'};
+ const migration=spawnSync('node_modules/.bin/prisma',['db','push','--skip-generate'],{env,encoding:'utf8'});if(migration.status!==0)throw Error(prefix+' isolated schema setup failed');
+ const result=spawnSync('node_modules/.bin/tsx',['--test','test/'+file],{env,stdio:'inherit'});if(result.status!==0)throw Error(prefix+' isolated tests failed');
+ }finally{await db.$executeRawUnsafe('DROP SCHEMA "'+schema+'" CASCADE');await db.$disconnect();}
+}})().catch(e=>{console.error(e.message);process.exit(1)});

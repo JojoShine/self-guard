@@ -1,0 +1,3 @@
+CREATE TABLE "WafRuleBundle" ("id" TEXT NOT NULL,"name" TEXT NOT NULL,"version" TEXT NOT NULL,"source" TEXT NOT NULL,"license" TEXT NOT NULL,"sha256" TEXT NOT NULL,"profile" TEXT NOT NULL DEFAULT 'inbound-PL1',"parentId" TEXT,"files" JSONB NOT NULL,"status" TEXT NOT NULL DEFAULT 'CANDIDATE',"report" JSONB,"checkedAt" TIMESTAMP(3),"author" TEXT NOT NULL,"createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,"updatedAt" TIMESTAMP(3) NOT NULL,CONSTRAINT "WafRuleBundle_pkey" PRIMARY KEY ("id"));
+CREATE UNIQUE INDEX "WafRuleBundle_source_version_sha256_key" ON "WafRuleBundle"("source","version","sha256");
+CREATE INDEX "WafRuleBundle_createdAt_idx" ON "WafRuleBundle"("createdAt");

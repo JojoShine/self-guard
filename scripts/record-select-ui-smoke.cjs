@@ -1,0 +1,35 @@
+// All choices and writes are controlled UI fixtures, including records beyond the first 100.
+const fs=require('node:fs'),assert=require('node:assert/strict'),{chromium}=require(process.env.PLAYWRIGHT_MODULE||'playwright');
+const env=Object.fromEntries(fs.readFileSync('.env','utf8').split(/\r?\n/).filter(line=>line.includes('=')).map(line=>{const i=line.indexOf('=');return[line.slice(0,i),line.slice(i+1)]}));
+async function main(){
+ const login=await fetch('http://127.0.0.1:4010/api/auth/login',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({email:env.ADMIN_EMAIL||'admin@selfguard.local',password:env.ADMIN_PASSWORD})});assert.ok(login.ok);const{token}=await login.json(),browser=await chromium.launch({headless:true,channel:'chrome'});
+ try{for(const width of (process.env.RECORD_SELECT_WIDTHS||'1920,1440,1280,768,390').split(',').map(Number)){
+  const page=await browser.newPage({viewport:{width,height:1000}});page.setDefaultTimeout(10000);await page.addInitScript(token=>sessionStorage.setItem('sg-token',token),token);
+  const assets=Array.from({length:181},(_,i)=>({id:'owned-asset-'+i,hostname:'选择验收主机 '+i,ip:'192.0.2.'+(i%250+1),tags:[],os:'linux'})),risk={id:'owned-risk-180',title:'指定主机真实风险',kind:'RISK',status:'OPEN',assetId:assets[180].id},requests=[];let failChoices=true,submitted;
+  await page.route('**/api/**',async route=>{
+   const req=route.request(),url=new URL(req.url()),path=url.pathname;
+   if(path==='/api/tasks'&&req.method()==='POST'){submitted=req.postDataJSON();assert.equal(submitted.assetId,assets[180].id);assert.equal(submitted.findingId,risk.id);return route.fulfill({json:{id:'owned-new-task',...submitted}})}
+   assert.equal(req.method(),'GET','Unexpected mutation outside owned UI fixture');
+   if(path==='/api/tasks')return route.fulfill({json:{items:[],total:0}});
+   if(path==='/api/record-options/assets'){
+    const selected=url.searchParams.get('selected');if(selected)return route.fulfill({json:{items:assets.filter(row=>row.id===selected),total:assets.some(row=>row.id===selected)?1:0}});
+    assert.equal(url.searchParams.get('activeOnly'),'true');
+    requests.push(Object.fromEntries(url.searchParams));if(failChoices){failChoices=false;return route.fulfill({status:503,json:{message:'夹具：主机目录暂时不可用'}})}
+    const q=url.searchParams.get('q')||'',filtered=assets.filter(row=>row.hostname.includes(q)),size=Number(url.searchParams.get('pageSize')||15),offset=(Number(url.searchParams.get('page')||1)-1)*size;return route.fulfill({json:{items:filtered.slice(offset,offset+size),total:filtered.length}});
+   }
+   if(path==='/api/record-options/findings'){const selected=url.searchParams.get('selected');if(!selected){assert.equal(url.searchParams.get('assetId'),assets[180].id);assert.equal(url.searchParams.get('kind'),'RISK')}return route.fulfill({json:{items:[risk],total:1}})}
+   if(path==='/api/findings/'+risk.id)return route.fulfill({json:risk});return route.continue();
+  });
+  if(process.env.RECORD_SELECT_FOCUS_DEBUG)await page.addInitScript(()=>{window.__choiceFocus=[];for(const type of ['focusin','focusout','mousedown'])document.addEventListener(type,event=>{const el=event.target;window.__choiceFocus.push({at:performance.now(),type,tag:el.tagName,id:el.id,class:String(el.className),active:document.activeElement?.id});if(window.__choiceFocus.length>100)window.__choiceFocus.shift()},true)});
+  await page.goto('http://127.0.0.1:5180/#tasks');await page.getByRole('button',{name:'创建任务',exact:true}).click();const modal=page.locator('.ant-modal-content:visible');
+  if(process.env.RECORD_SELECT_DEBUG)console.log(await modal.evaluate(el=>({labels:[...el.querySelectorAll('label')].map(x=>({text:x.textContent,for:x.htmlFor})),inputs:[...el.querySelectorAll('input')].map(x=>({id:x.id,role:x.getAttribute('role'),'aria-label':x.getAttribute('aria-label')}))})));
+  if(process.env.RECORD_SELECT_DEBUG)console.log((await modal.ariaSnapshot()).slice(0,7000));
+  const asset=modal.getByLabel('目标资产',{exact:true});await asset.click();if(process.env.RECORD_SELECT_DEBUG){await page.waitForTimeout(800);console.log(await page.locator('.ant-select-dropdown').evaluateAll(elements=>elements.map(el=>({text:el.textContent,rectangle:el.getBoundingClientRect().toJSON(),style:getComputedStyle(el).cssText,display:getComputedStyle(el).display,visibility:getComputedStyle(el).visibility}))));console.log((await modal.ariaSnapshot()).slice(-6500))}await page.getByText('夹具：主机目录暂时不可用',{exact:true}).waitFor().catch(async error=>{if(process.env.RECORD_SELECT_FOCUS_DEBUG)console.log(await page.evaluate(()=>({events:window.__choiceFocus,active:document.activeElement?.id,expanded:document.querySelector("#assetId")?.getAttribute("aria-expanded"),popups:[...document.querySelectorAll(".ant-select-dropdown")].map(el=>({class:el.className,style:el.getAttribute("style"),rect:el.getBoundingClientRect().toJSON(),display:getComputedStyle(el).display,visibility:getComputedStyle(el).visibility,opacity:getComputedStyle(el).opacity,parents:[el.parentElement,el.parentElement?.parentElement].filter(Boolean).map(parent=>({class:parent.className,style:parent.getAttribute("style")}))}))})));throw error});assert.equal(await page.locator('.ant-select-dropdown:visible').evaluate(el=>el.offsetWidth),await asset.evaluate(el=>el.closest('.ant-select').offsetWidth),'Popup must use layout width rather than the modal animation scale');await page.getByRole('button',{name:'重新加载记录',exact:true}).click();await page.locator('.ant-select-dropdown:visible').getByText('选择验收主机 0 · 192.0.2.1',{exact:true}).waitFor();
+  await page.getByRole('button',{name:'加载更多记录',exact:true}).click();await page.locator('.ant-select-dropdown:visible').getByText(/已加载 30 \/ 181/).waitFor();await page.locator('.ant-select-dropdown:visible .rc-virtual-list-holder').evaluate(el=>{el.scrollTop=500});await page.locator('.ant-select-dropdown:visible').getByText('选择验收主机 15 · 192.0.2.16',{exact:true}).waitFor();assert.ok(requests.some(row=>row.page==='2'&&row.pageSize==='15'));
+  await asset.fill('选择验收主机 180');await page.locator('.ant-select-dropdown:visible').getByText('选择验收主机 180 · 192.0.2.181',{exact:true}).click();
+  const finding=modal.getByLabel('关联风险',{exact:true});await finding.click();await page.locator('.ant-select-dropdown:visible').getByText('指定主机真实风险',{exact:true}).click();
+  await modal.getByLabel('任务标题',{exact:true}).fill('选择已有对象创建修复');await modal.getByLabel('目标文件绝对路径',{exact:true}).fill('/owned/fixture');await modal.getByLabel('目标权限（例如 0640）',{exact:true}).fill('0640');await modal.getByRole('button',{name:'创建记录',exact:true}).click();await modal.waitFor({state:'hidden'});assert.ok(submitted);assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));
+  console.log('PASS remote choices, retry, 15-row loading, record beyond 100, asset-scoped risk and viewport '+width);await page.close();
+ }}finally{await browser.close()}
+}
+main().catch(error=>{console.error(error.stack||error.message);process.exitCode=1});

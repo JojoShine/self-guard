@@ -1,0 +1,33 @@
+[Unit]
+Description=Self Guard unprivileged collector
+After=network-online.target selfguard-executor.service
+Wants=network-online.target
+Requires=selfguard-executor.service
+
+[Service]
+Type=simple
+User=selfguard-agent
+Group=selfguard-agent
+ExecStart=/opt/selfguard-agent/current
+Environment=AGENT_CONFIG=/etc/selfguard-agent/collector.json
+Restart=on-failure
+RestartSec=10
+StateDirectory=selfguard-agent
+StateDirectoryMode=0700
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+ReadWritePaths=/var/lib/selfguard-agent
+ReadOnlyPaths=/srv/selfguard-managed
+CPUQuota=20%
+MemoryMax=128M
+TasksMax=32
+
+[Install]
+WantedBy=multi-user.target

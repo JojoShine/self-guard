@@ -1,0 +1,10 @@
+// Only used in fresh acceptance schemas against the explicitly owned fixture.
+import {Db} from '../src/db';import {ScanEndpointsController} from '../src/scan-endpoints';import {ScanTemplatesController} from '../src/scan-templates';
+export async function approvedProbeFixture(db:Db,user:any,asset:any,endpoint:any,checks:any[]){
+ const req={user},endpoints=new ScanEndpointsController(db),templates=new ScanTemplatesController(db),draft=await endpoints.create(req,{assetId:asset.id,name:'Owned fixture endpoint',...endpoint}),preview=await endpoints.preview(req,draft.id,{expectedVersion:draft.version}),approved=await endpoints.approve(req,draft.id,{expectedVersion:draft.version,previewHash:preview.previewHash}),frozenChecks=[],pins=[];
+ for(const [index,check] of checks.entries()){
+  const row=await templates.create(req,{name:'Owned fixture check '+index,purpose:'EXPOSURE',severity:'LOW',description:check.rule.description,remediation:'Review the owned fixture only',method:check.method,path:check.path,operator:check.rule.operator,...(check.rule.conditions?{conditions:check.rule.conditions}:{}),...(check.rule.groups?{groups:check.rule.groups}:{}),...(check.rule.maxRedirects!==undefined?{maxRedirects:check.rule.maxRedirects}:{}),samples:[{name:'Explicit matching sample',expectedMatched:true,status:200,headers:{},body:check.method==='HEAD'?'':'owned-probe-fixture'},{name:'Explicit normal sample',expectedMatched:false,status:404,headers:{},body:''}]});
+  const report=await templates.validate(req,row.id,{expectedVersion:row.version});if(!report.passed)throw Error('Acceptance sample unexpectedly failed');const template=await templates.approve(req,row.id,{expectedVersion:row.version}),definition=template.definition as any;frozenChecks.push({method:definition.method,path:definition.path,rule:definition.rule});pins.push({id:template.id,version:template.version,approvalHash:template.approvalHash});
+ }
+ return {endpoint:approved,templates:pins,inventory:{active:{endpoints:[preview.target],checks:frozenChecks},activeSources:{endpoints:[{id:approved.id,version:approved.version,approvalHash:approved.approvalHash}],templates:pins}}};
+}

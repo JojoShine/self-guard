@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "go": "1.27.3",
+  "agent": {
+    "protocol": 1,
+    "systems": [
+      "debian:12",
+      "debian:13",
+      "ubuntu:22.04",
+      "ubuntu:24.04",
+      "rockylinux:9"
+    ],
+    "architectures": [
+      "amd64",
+      "arm64"
+    ],
+    "serviceManager": "systemd",
+    "laterInScope": {
+      "system": "alpine:3.24",
+      "serviceManager": "OpenRC"
+    }
+  },
+  "waf": {
+    "source": "https://github.com/coreruleset/coreruleset",
+    "release": "v4.25.1",
+    "profile": "inbound-PL1",
+    "status": "not-yet-verified",
+    "regex": "PCRE2",
+    "regexVersion": "10.49-r0 (Alpine package)",
+    "archiveSha256": "0539e66e7627fe71c160a644d8fb7ab6e450d53c9de208be5f95a35c70e1a154"
+  },
+  "scan": {
+    "inventoryMaxAgeHours": 24,
+    "emptyScope": "reject",
+    "archivedTargets": "skip",
+    "templateEngine": "self-developed"
+  }
+}

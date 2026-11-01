@@ -1,0 +1,35 @@
+name: Release
+on:
+  push:
+    tags: ['v*.*.*']
+permissions:
+  contents: write
+  actions: read
+  packages: write
+jobs:
+  promote:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: production
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with: {fetch-depth: 0, persist-credentials: false}
+      - name: Locate successful main acceptance for this exact commit
+        env: {GH_TOKEN: '${{ github.token }}'}
+        run: |
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+          run_id=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$GITHUB_SHA&status=success" --jq '.workflow_runs | map(select(.head_branch == "main" and .event == "push"))[0].id')
+          test -n "$run_id" && test "$run_id" != null
+          mkdir candidate
+          gh run download "$run_id" --repo "$GITHUB_REPOSITORY" --name "candidate-$GITHUB_SHA" --dir candidate
+      - name: Promote the accepted digests without rebuilding
+        env: {GH_TOKEN: '${{ github.token }}'}
+        run: |
+          printf '%s' "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          node scripts/promote-release.cjs candidate "$GITHUB_REF_NAME"
+          docker logout ghcr.io
+      - name: Publish version-matched deployment bundle
+        env: {GH_TOKEN: '${{ github.token }}'}
+        run: |
+          tar -czf "self-guard-$GITHUB_REF_NAME-deploy.tar.gz" -C candidate compose.prod.yaml .env.prod.example DEPLOYMENT.md deploy nginx release-manifest.json
+          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" --notes 'Verified static frontend + digest-pinned backend/WAF + bundled PostgreSQL. BASE_PATH=/self-guard. See DEPLOYMENT.md.' "self-guard-$GITHUB_REF_NAME-deploy.tar.gz" candidate/self-guard-web.tar.gz candidate/release-manifest.json candidate/compose.prod.yaml candidate/acceptance.json

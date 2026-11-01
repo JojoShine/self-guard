@@ -1,0 +1,53 @@
+name: selfguard-runtime
+services:
+  postgres:
+    extends:
+      file: compose.dev.yaml
+      service: postgres
+    volumes: !override
+      - ./.artifacts/runtime-postgres:/var/lib/postgresql/data
+  init:
+    extends:
+      file: compose.dev.yaml
+      service: api
+    ports: !reset []
+    command: sh -c 'npx prisma generate && npx prisma migrate deploy && npx tsx prisma/seed.ts && npm run build'
+  api:
+    extends:
+      file: compose.dev.yaml
+      service: api
+    ports: !reset []
+    command: node dist/main.js
+    depends_on:
+      init:
+        condition: service_completed_successfully
+    environment:
+      TRUSTED_PROXY_CIDRS: loopback,linklocal,uniquelocal
+  api-replica:
+    extends:
+      file: compose.dev.yaml
+      service: api
+    ports: !reset []
+    command: node dist/main.js
+    depends_on:
+      init:
+        condition: service_completed_successfully
+    environment:
+      TRUSTED_PROXY_CIDRS: loopback,linklocal,uniquelocal
+  gateway:
+    image: node:22-bookworm-slim
+    working_dir: /gateway
+    user: node
+    environment:
+      API_UPSTREAMS: http://api:4000,http://api-replica:4000
+      WEB_ROOT: /web
+      PORT: 8080
+    volumes:
+      - ./services/gateway:/gateway:ro
+      - ./apps/web/dist:/web:ro
+    command: node server.cjs
+    ports:
+      - 127.0.0.1:5182:8080
+    depends_on:
+      - api
+      - api-replica

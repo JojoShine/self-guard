@@ -1,0 +1,21 @@
+# Test-only Lima VM. Host files are not mounted and container runtimes are off.
+# Image pinned by the Lima v2.2.1 Ubuntu 24.04 image catalog.
+vmType: vz
+arch: aarch64
+cpus: 2
+memory: 2GiB
+disk: 8GiB
+images:
+  - location: ../.artifacts/tools/ubuntu-24.04-minimal-arm64.img
+    arch: aarch64
+    digest: sha256:fbf6b15c50c474dc6dee5b3c74da212bb687a2625e877227828e6492d88dc151
+mounts: []
+containerd:
+  system: false
+  user: false
+ssh:
+  localPort: 22222
+  loadDotSSHPubKeys: false
+rosetta:
+  enabled: false
+  binfmt: false

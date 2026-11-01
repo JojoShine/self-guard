@@ -1,0 +1,17 @@
+const fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict'),{generateKeyPairSync}=require('node:crypto');
+process.env.AGENT_NATIVE_VM='native-ssh24';
+const {call,shell,loginFixture,ca}=require('./agent-native-smoke.cjs');
+async function main(){
+ await loginFixture();const version=process.env.AGENT_NATIVE_VERSION||'0.2.4';
+ const releases=await call('/agent-releases?pageSize=100'),release=releases.items.find(r=>r.version===version&&r.architecture==='arm64'&&r.status==='PUBLISHED');assert.ok(release,'publish the verified native candidate in this isolated fixture first');
+ const username=(await shell('whoami')).trim(),hostKey=(await shell('cat /etc/ssh/ssh_host_ed25519_key.pub')).trim().split(' ').slice(0,2).join(' '),privateKey=fs.readFileSync('.artifacts/lima/_config/user','utf8');
+ await shell('test "$(cat /proc/1/comm)" = systemd && test ! -e /var/lib/selfguard-agent/identity.json');
+ let asset=(await call('/assets?q=native-ssh-fixture&pageSize=100')).items.find(a=>a.hostname==='native-ssh-fixture');if(!asset)asset=await call('/assets',{hostname:'native-ssh-fixture',os:'linux',ip:'192.168.65.254',business:'native-ssh'});
+ const common={name:'Native pinned SSH acceptance',releaseId:release.id,server:'https://host.lima.internal:14410',username,port:22223,privateKey,caCertificate:ca,concurrency:1,stopOnFailure:true,executorEnabled:false};
+ const wrong=generateKeyPairSync('ed25519').publicKey.export({format:'der',type:'spki'}).subarray(-32);const keyType=Buffer.from('ssh-ed25519'),blob=Buffer.concat([Buffer.from([0,0,0,keyType.length]),keyType,Buffer.from([0,0,0,wrong.length]),wrong]);
+ async function execute(name,key){const batch=await call('/agent-install-batches',{...common,name,targets:[{assetId:asset.id,hostKey:key}]});await call('/agent-install-batches/'+batch.id+'/start',{assetIds:[asset.id]});let target;for(let i=0;i<120;i++){const row=(await call('/agent-install-batches?pageSize=100')).items.find(b=>b.id===batch.id);target=row.targets[0];if(['SUCCEEDED','FAILED','UNKNOWN','PARTIAL'].includes(target.status))return target;await new Promise(r=>setTimeout(r,2000));}throw Error('SSH native acceptance timeout');}
+ const rejected=await execute('Native wrong host-key rejection','ssh-ed25519 '+blob.toString('base64'));assert.equal(rejected.status,'FAILED');assert.match(rejected.detail,/主机密钥/);await shell('test ! -e /var/lib/selfguard-agent/identity.json');console.log('PASS: wrong pinned host key fails before any target identity or installation');
+ const accepted=await execute('Native verified SSH installation',hostKey);assert.equal(accepted.status,'SUCCEEDED',accepted.detail);const current=await call('/assets/'+asset.id);assert.equal(current.id,asset.id);assert.equal(current.inventory.agentDiagnostics.version,version);assert.equal((await shell('systemctl is-active selfguard-collector')).trim(),'active');console.log('PASS: real OpenSSH pin, encrypted batch credential, explicit target authorization, fixed signed release, systemd and current platform heartbeat');
+ fs.writeFileSync(path.resolve('.artifacts/native-agent/ssh-result.json'),JSON.stringify({at:new Date().toISOString(),assetId:asset.id,installationId:accepted.installationId,version,checks:['wrong-key-refused-before-install','actual-openssh-transport','original-asset-bound','systemd-service','version-heartbeat']}),{mode:0o600});
+}
+main().catch(e=>{console.error(e.message);process.exitCode=1});

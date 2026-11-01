@@ -1,0 +1,52 @@
+name: Build and verify
+on:
+  workflow_call:
+    inputs:
+      publish: {type: boolean, required: true}
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    environment: ${{ inputs.publish && 'production' || 'ci' }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with: {persist-credentials: false}
+      - name: Build frontend for confirmed subpath and run tests
+        run: |
+          docker run --rm -v "$PWD/apps/web:/app" -w /app -e BASE_PATH=/self-guard node:22.22.0-bookworm-slim sh -c 'npm ci --no-audit --no-fund && npm run build && npm test -- --maxWorkers=2 --minWorkers=1'
+      - name: Build immutable candidate components
+        run: |
+          docker build --target runtime --build-arg SOURCE_REVISION="$GITHUB_SHA" -t self-guard-ci:app .
+          docker build --target runtime -f services/waf/Dockerfile -t self-guard-ci:waf .
+      - name: Verify complete production topology in isolation
+        run: node scripts/deployment-ci.cjs
+      - name: Package static assets and deployment files
+        run: |
+          mkdir -p .artifacts/candidate/web/self-guard .artifacts/candidate
+          cp -a apps/web/dist/. .artifacts/candidate/web/self-guard/
+          tar -czf .artifacts/candidate/self-guard-web.tar.gz -C .artifacts/candidate/web self-guard
+          cp compose.prod.yaml .env.prod.example DEPLOYMENT.md .artifacts/candidate/
+          cp -a deploy nginx .artifacts/candidate/
+          rm -rf .artifacts/candidate/web
+          cp .artifacts/deployment-ci-result.json .artifacts/candidate/acceptance.json
+      - name: Publish verified main candidates
+        if: inputs.publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          printf '%s' "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          for component in app waf; do
+            image=ghcr.io/jojoshine/self-guard
+            if [ "$component" = waf ]; then image=ghcr.io/jojoshine/self-guard-waf; fi
+            docker tag "self-guard-ci:$component" "$image:sha-$GITHUB_SHA"
+            docker push "$image:sha-$GITHUB_SHA"
+          done
+          node scripts/release-manifest.cjs .artifacts/candidate
+          docker logout ghcr.io
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: inputs.publish
+        with:
+          name: candidate-${{ github.sha }}
+          path: .artifacts/candidate/
+          include-hidden-files: true
+          retention-days: 30

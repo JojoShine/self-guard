@@ -1,0 +1,2 @@
+CREATE TABLE "SiteCertificate" ("id" TEXT PRIMARY KEY,"hostname" TEXT NOT NULL,"certificate" TEXT NOT NULL,"keyCiphertext" TEXT NOT NULL,"notAfter" TIMESTAMP(3) NOT NULL,"version" INTEGER NOT NULL DEFAULT 1,"enabled" BOOLEAN NOT NULL DEFAULT true,"createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,"updatedAt" TIMESTAMP(3) NOT NULL);
+CREATE UNIQUE INDEX "SiteCertificate_hostname_key" ON "SiteCertificate"("hostname");

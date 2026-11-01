@@ -1,0 +1,101 @@
+{
+  "catalog": "Lima v2.2.1 official pinned catalogs",
+  "entries": [
+    {
+      "id": "debian-12-amd64",
+      "system": "debian-12",
+      "arch": "x86_64",
+      "url": "https://cloud.debian.org/images/cloud/bookworm/20260923-2610/debian-12-genericcloud-amd64-20260923-2610.qcow2",
+      "digest": "sha512:3d94c9dd66d8a283fde060b8810373b7ae04038b956ee00d553d1ae564f6fbdeaa2fd6e7404e87e53348b5a9509170f3ea7c0731ba737590c5c4cb8d559a47f8",
+      "filename": "debian-12-amd64.img"
+    },
+    {
+      "id": "debian-12-arm64",
+      "system": "debian-12",
+      "arch": "aarch64",
+      "url": "https://cloud.debian.org/images/cloud/bookworm/20260923-2610/debian-12-genericcloud-arm64-20260923-2610.qcow2",
+      "digest": "sha512:89a752d5c7d8e88bee39a57d88d496cca574f7d1e8df5df7a169825435f99feb11ed13ab27ec7bee96fe1584be4ff9479358fbca6cc859efa109f4aba18724c8",
+      "filename": "debian-12-arm64.img"
+    },
+    {
+      "id": "debian-13-amd64",
+      "system": "debian-13",
+      "arch": "x86_64",
+      "url": "https://cloud.debian.org/images/cloud/trixie/20261001-2618/debian-13-genericcloud-amd64-20261001-2618.qcow2",
+      "digest": "sha512:f46f0671a6e5bdec5291ab8972bae2f10e5408c2f64a74078f11efc2f06a436a9d0313ed50e0472542eeabf780e9f7c792ac0a314c6c20507fcd9fd81b468c3d",
+      "filename": "debian-13-amd64.img"
+    },
+    {
+      "id": "debian-13-arm64",
+      "system": "debian-13",
+      "arch": "aarch64",
+      "url": "https://cloud.debian.org/images/cloud/trixie/20261001-2618/debian-13-genericcloud-arm64-20261001-2618.qcow2",
+      "digest": "sha512:d8470b8c6c38fead046c794b5800a5a7b96672d5bcf543cc230ceb0c4b8ace05ed341a0c8928045422243fde26b2f1f2f58e99244c65709ffda2e3d4b674dd5a",
+      "filename": "debian-13-arm64.img"
+    },
+    {
+      "id": "ubuntu-22.04-amd64",
+      "system": "ubuntu-22.04",
+      "arch": "x86_64",
+      "url": "https://cloud-images.ubuntu.com/minimal/releases/jammy/release-20261001/ubuntu-22.04-minimal-cloudimg-amd64.img",
+      "digest": "sha256:bd27c6f51053dd7e59bcbe6016c6fa853f54b1e423af12273ff46a5176bfbf41",
+      "filename": "ubuntu-22.04-amd64.img"
+    },
+    {
+      "id": "ubuntu-22.04-arm64",
+      "system": "ubuntu-22.04",
+      "arch": "aarch64",
+      "url": "https://cloud-images.ubuntu.com/releases/jammy/release-20260926/ubuntu-22.04-server-cloudimg-arm64.img",
+      "digest": "sha256:04f2ca6af841918df1fa1aaba485f2b5f3d451f90459e48c066bbd70ebed174f",
+      "filename": "ubuntu-22.04-arm64.img"
+    },
+    {
+      "id": "ubuntu-24.04-amd64",
+      "system": "ubuntu-24.04",
+      "arch": "x86_64",
+      "url": "https://cloud-images.ubuntu.com/minimal/releases/noble/release-20261001/ubuntu-24.04-minimal-cloudimg-amd64.img",
+      "digest": "sha256:a8eb6570f87a941f3de2e000c046b9367f8ab1423756a94830d454fae8ad80ff",
+      "filename": "ubuntu-24.04-amd64.img"
+    },
+    {
+      "id": "ubuntu-24.04-arm64",
+      "system": "ubuntu-24.04",
+      "arch": "aarch64",
+      "url": "https://cloud-images.ubuntu.com/minimal/releases/noble/release-20261001/ubuntu-24.04-minimal-cloudimg-arm64.img",
+      "digest": "sha256:fbf6b15c50c474dc6dee5b3c74da212bb687a2625e877227828e6492d88dc151",
+      "filename": "ubuntu-24.04-arm64.img"
+    },
+    {
+      "id": "rocky-9-amd64",
+      "system": "rocky-9",
+      "arch": "x86_64",
+      "url": "https://dl.rockylinux.org/pub/rocky/9.8/images/x86_64/Rocky-9-GenericCloud-Base-9.8-20260525.0.x86_64.qcow2",
+      "digest": "sha256:92c206cc6f790c61583247eefe87890f8828420662c17cacf247cec78ab4eec8",
+      "filename": "rocky-9-amd64.img"
+    },
+    {
+      "id": "rocky-9-arm64",
+      "system": "rocky-9",
+      "arch": "aarch64",
+      "url": "https://dl.rockylinux.org/pub/rocky/9.8/images/aarch64/Rocky-9-GenericCloud-Base-9.8-20260525.0.aarch64.qcow2",
+      "digest": "sha256:24692a444f1f0b8bb95375c38c8b43f8099a115347623691be2c330b40c8a1fe",
+      "filename": "rocky-9-arm64.img"
+    },
+    {
+      "id": "alpine-3.23-amd64",
+      "system": "alpine-3.23.4",
+      "arch": "x86_64",
+      "url": "https://dl-cdn.alpinelinux.org/alpine/v3.23/releases/cloud/nocloud_alpine-3.23.4-x86_64-uefi-cloudinit-r0.qcow2",
+      "digest": "sha512:849196e26640b33fb1f106d46cebdf341c715f7f49363564eacece8097464b6af7041618e94c4eb1a006394663252a86c0fb3158fee5d0ffb094899730679a71",
+      "filename": "alpine-3.23-amd64.img"
+    },
+    {
+      "id": "alpine-3.23-arm64",
+      "system": "alpine-3.23.4",
+      "arch": "aarch64",
+      "url": "https://dl-cdn.alpinelinux.org/alpine/v3.23/releases/cloud/nocloud_alpine-3.23.4-aarch64-uefi-cloudinit-r0.qcow2",
+      "digest": "sha512:737b0eb365944ffcf6da477c059c105bbde222942fd5a8380c07db088365b18dbc60a0f2824ea9a3904d57e194e0d05a7074302c3ebc104d0aecb6ddc6ffd91c",
+      "filename": "alpine-3.23-arm64.img"
+    }
+  ]
+}

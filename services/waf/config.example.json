@@ -1,0 +1,36 @@
+{
+  "sites": [
+    {
+      "id": "demo",
+      "name": "Demo",
+      "hostname": "localhost",
+      "upstream": "http://127.0.0.1:3000",
+      "mode": "BLOCK",
+      "enabled": true,
+      "version": 1,
+      "config": {
+        "maxBodyBytes": 1048576,
+        "ratePerMinute": 120,
+        "allowCidrs": [],
+        "denyCidrs": [],
+        "trustedProxyCidrs": [],
+        "allowedMethods": [
+          "GET",
+          "POST",
+          "HEAD"
+        ],
+        "deniedPaths": [
+          "/.env"
+        ],
+        "exceptions": [],
+        "pathRateLimits": [
+          {
+            "path": "/login",
+            "ratePerMinute": 10
+          }
+        ],
+        "healthCheckPath": "/"
+      }
+    }
+  ]
+}

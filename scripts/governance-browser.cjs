@@ -1,0 +1,47 @@
+const fs = require('fs');
+const assert = require('node:assert/strict');
+const path = require('node:path');
+const root = path.resolve(__dirname, '..');
+let adminPassword = '';
+const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
+(async () => {
+ const env = Object.fromEntries(fs.readFileSync(path.join(root, '.env'),'utf8').trim().split('\n').map(l => {const i=l.indexOf('=');return [l.slice(0,i),l.slice(i+1)];}));
+ adminPassword = env.ADMIN_PASSWORD;
+ const browser = await chromium.launch({headless:true,channel:'chrome'});
+ const page = await browser.newPage({viewport:{width:1440,height:1000}});
+ const errors=[];page.on('pageerror',e=>errors.push(e.message));
+ try {
+  await page.goto('http://127.0.0.1:5180');
+  await page.getByLabel('邮箱').fill(env.ADMIN_EMAIL);
+  await page.getByLabel('密码',{exact:true}).fill(env.ADMIN_PASSWORD);
+  await page.getByRole('button',{name:/登\s*录/}).click();
+  await page.getByRole('heading',{name:'工作台',exact:true}).waitFor({timeout:15000});
+  await page.goto('http://127.0.0.1:5180/#governance');
+  await page.getByRole('button',{name:'保存审批策略',exact:true}).waitFor();
+  const original=await page.evaluate(async()=>{const r=await fetch('/api/governance/approval-policy',{headers:{Authorization:'Bearer '+sessionStorage.getItem('sg-token')}});return r.json()});
+  await page.getByRole('button',{name:'保存审批策略',exact:true}).click();
+  await page.getByText('设置已保存',{exact:true}).waitFor();
+  const after=await page.evaluate(async()=>{const r=await fetch('/api/governance/approval-policy',{headers:{Authorization:'Bearer '+sessionStorage.getItem('sg-token')}});return r.json()});
+  assert.deepEqual(after,original);
+  await page.goto('http://127.0.0.1:5180/#retention');
+  await page.getByRole('button',{name:'预览到期记录',exact:true}).click();
+  await page.getByText('到期记录预览',{exact:true}).waitFor();
+  await page.goto('http://127.0.0.1:5180/#imports');
+  await page.getByRole('button',{name:'导入外部结果',exact:true}).click();
+  await page.getByRole('textbox').last().fill(JSON.stringify({items:[{invalid:true}]}));
+  await page.getByRole('button',{name:'开始导入',exact:true}).click();
+  await page.getByText('导入失败',{exact:true}).first().waitFor();
+  const row=page.getByRole('row').filter({has:page.getByText('导入失败',{exact:true})}).first();
+  await row.getByRole('button',{name:'修正并重试',exact:true}).click();
+  await page.getByRole('textbox').last().fill(JSON.stringify({items:[{externalId:'browser-governance-'+Date.now(),title:'浏览器导入验证',kind:'ALERT',severity:'LOW',source:'browser-governance-test',evidence:'浏览器验证：失败批次修正后重试'}]}));
+  await page.getByRole('button',{name:'重试导入',exact:true}).click();
+  await page.getByText('成功导入 1 条结果',{exact:true}).waitFor();
+  await page.goto('http://127.0.0.1:5180/#notifications');
+  await page.getByRole('button',{name:'同步站内待办',exact:true}).click();
+  await page.getByText(/新增 \d+ 条通知/).waitFor();
+  fs.mkdirSync(path.join(root,'.artifacts/results'),{recursive:true});
+  await page.screenshot({path:path.join(root,'.artifacts/results/governance-browser.png'),fullPage:true});
+  assert.deepEqual(errors,[]);
+  console.log('Governance browser passed: approval save preserves policy; retention preview only; failed import corrected and retried; notification sync; no runtime errors.');
+ } finally {await browser.close();}
+})().catch(e=>{console.error(adminPassword ? e.message.split(adminPassword).join('[REDACTED]') : e.message);process.exitCode=1;});

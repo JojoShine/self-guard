@@ -1,0 +1,14 @@
+const fs=require('node:fs'),path=require('node:path'),crypto=require('node:crypto'),{spawn}=require('node:child_process');
+const root=path.resolve(__dirname,'..'),tools=path.join(root,'.artifacts/tools'),catalog=path.join(tools,'lima/share/lima/templates/_images');
+const selected=new Set(process.argv.slice(2)),entries=[];
+for(const system of ['debian-12','debian-13','ubuntu-22.04','ubuntu-24.04','rocky-9','alpine-3.23']){
+ const text=fs.readFileSync(path.join(catalog,system+'.yaml'),'utf8'),candidates=[...text.matchAll(/- location: "([^"]+)"\s+arch: "([^"]+)"\s+digest: "([^"]+)"(?:\s+variant: "([^"]+)")?/g)];
+ for(const arch of ['x86_64','aarch64']){const choices=candidates.filter(m=>m[2]===arch),m=choices.find(m=>m[4]==='minimal')||choices[0];if(!m)throw Error('Pinned official image missing: '+system+' '+arch);const id=system+'-'+(arch==='x86_64'?'amd64':'arm64');entries.push({id,system:system==='alpine-3.23'?'alpine-3.23.4':system,arch,url:m[1],digest:m[3],filename:id+'.img'});}
+}
+async function digest(file,algorithm){const h=crypto.createHash(algorithm);for await(const b of fs.createReadStream(file))h.update(b);return h.digest('hex');}
+async function download(entry){const file=path.join(tools,entry.filename),[algorithm,expected]=entry.digest.split(':');if(fs.existsSync(file)&&await digest(file,algorithm)===expected){console.log('Verified existing '+entry.id);return;}
+ let downloadUrl=entry.url;if(entry.system==='rocky-9'&&process.env.NATIVE_IMAGE_MIRROR){const mirror=new URL(process.env.NATIVE_IMAGE_MIRROR);if(mirror.protocol!=='https:'||mirror.username||mirror.password||mirror.search||mirror.hash)throw Error('HTTPS mirror root required');downloadUrl=mirror.href.replace(/\/$/,'')+new URL(entry.url).pathname.replace(/^\/pub\/rocky/,'');}
+ await new Promise((resolve,reject)=>{const child=spawn('curl',['--silent','--show-error','--fail','--location','--continue-at','-','--connect-timeout','15','--max-time','1800','--output',file,downloadUrl],{stdio:['ignore','ignore','pipe']});let diagnostic='';child.stderr.on('data',b=>{if(diagnostic.length<8192)diagnostic+=b.toString()});child.on('error',reject);child.on('close',code=>code===0?resolve():reject(Error(entry.id+': '+diagnostic)));});
+ if(await digest(file,algorithm)!==expected)throw Error('Downloaded image checksum mismatch: '+entry.id);console.log('Downloaded and verified '+entry.id);
+}
+(async()=>{fs.writeFileSync(path.join(root,'docs/implementation/Linux验收镜像.json'),JSON.stringify({catalog:'Lima v2.2.1 official pinned catalogs',entries},null,2)+'\n');const queue=entries.filter(entry=>!selected.size||selected.has(entry.id));let index=0;const results=await Promise.allSettled(Array.from({length:2},async()=>{for(;;){const entry=queue[index++];if(!entry)return;await download(entry);}}));for(const result of results)if(result.status==='rejected')throw result.reason;})().catch(e=>{console.error(e.message);process.exitCode=1});

@@ -1,0 +1,38 @@
+import 'reflect-metadata';import {test} from 'node:test';import assert from 'node:assert/strict';import {randomBytes,createHash} from 'node:crypto';import {spawnSync} from 'node:child_process';
+import {Db} from '../src/db';import {VulnerabilityFeedsController,syncVulnerabilityFeed,feedUrl,retryAfterSeconds,syncDueVulnerabilityFeeds} from '../src/intelligence';
+const fixture={catalogVersion:'2026.10.30',dateReleased:'2026-10-30T12:00:00Z',count:1,vulnerabilities:[{cveID:'CVE-2021-44228',vendorProject:'Apache',product:'Log4j',vulnerabilityName:'Log4Shell',dateAdded:'2021-12-10',shortDescription:'Remote code execution',requiredAction:'Apply vendor fix',dueDate:'2021-12-24'}]};
+const response=async()=>({document:fixture,sourceSha256:createHash('sha256').update(JSON.stringify(fixture)).digest('hex')});
+test('provider URLs are generated from bounded selections rather than unrestricted network input',()=>{
+ assert.equal(feedUrl('CISA_KEV',{}).hostname,'www.cisa.gov');assert.equal(feedUrl('ALPINE',{branch:'v3.24',repository:'main'}).href,'https://secdb.alpinelinux.org/v3.24/main.json');
+ for(const value of [{branch:'../../private',repository:'main'},{branch:'v3.24',repository:'../passwd'}])assert.throws(()=>feedUrl('ALPINE',value));assert.throws(()=>feedUrl('NVD',{cveId:'CVE-2021-44228&x=private'}));
+ for(const syncMode of ['AUTO','FULL'])assert.equal(feedUrl('OSV',{mode:'ECOSYSTEM',ecosystem:'Go',syncMode}).href,'https://storage.googleapis.com/osv-vulnerabilities/Go/all.zip');
+ assert.throws(()=>feedUrl('OSV',{mode:'ECOSYSTEM',ecosystem:'Go',syncMode:'CUSTOM'}));assert.throws(()=>feedUrl('OSV',{advisoryId:'GO-1',syncMode:'AUTO'}));
+});
+test('retry-after supports seconds and HTTP dates within a bounded delay',()=>{const now=Date.parse('2026-10-31T12:00:00Z');assert.equal(retryAfterSeconds('120',now),120);assert.equal(retryAfterSeconds('Sat, 31 Oct 2026 12:05:00 GMT',now),300);assert.equal(retryAfterSeconds('invalid',now),60);assert.equal(retryAfterSeconds('999999',now),86400)});
+test('real multi-source snapshots publish atomically, deduplicate content, preserve last valid data and reject stale workers',{skip:!process.env.DATABASE_URL},async()=>{
+ const admin=new Db(),schema='intelligence_'+randomBytes(8).toString('hex');let db:Db|undefined;
+ try{await admin.$executeRawUnsafe('CREATE SCHEMA "'+schema+'"');const url=new URL(process.env.DATABASE_URL!);url.searchParams.set('schema',schema);const setup=spawnSync(process.execPath,['node_modules/prisma/build/index.js','db','push','--skip-generate'],{env:{...process.env,DATABASE_URL:url.toString()},encoding:'utf8'});assert.equal(setup.status,0,setup.stderr);db=new Db({datasourceUrl:url.toString()});
+  const req={user:{role:'ADMIN',email:'intel@fixture.test'}},controller=new VulnerabilityFeedsController(db),feed=await controller.create(req,{name:'KEV fixture',provider:'CISA_KEV',config:{}});
+  const first=await syncVulnerabilityFeed(db,feed.id,req.user.email,response);assert.equal(first.feed.status,'SUCCEEDED');const current=first.feed.currentSnapshotId;assert.ok(current);assert.equal(await db.vulnerabilityRecord.count(),1);
+  const second=await syncVulnerabilityFeed(db,feed.id,req.user.email,response);assert.equal(second.snapshot.status,'UNCHANGED');assert.equal(second.feed.currentSnapshotId,current);assert.equal(await db.vulnerabilityRecord.count(),1);
+  const failed=await syncVulnerabilityFeed(db,feed.id,req.user.email,async()=>({document:{...fixture,count:2},sourceSha256:'b'.repeat(64)}));assert.equal(failed.feed.status,'FAILED');assert.equal(failed.feed.currentSnapshotId,current);assert.equal(await db.vulnerabilityRecord.count(),1);
+  let release!:(value:any)=>void,entered!:(value?:unknown)=>void;const gate=new Promise(resolve=>entered=resolve),held=new Promise(resolve=>release=resolve);const pending=syncVulnerabilityFeed(db,feed.id,req.user.email,async()=>{entered();await held;return response()});await gate;
+  const renamed=await controller.patch(req,feed.id,{name:'Renamed source',enabled:true});assert.equal(renamed.status,'SYNCING');assert.ok(renamed.leaseId);
+  await controller.patch(req,feed.id,{enabled:false});release(undefined);const cancelled=await pending;assert.equal(cancelled.feed.enabled,false);assert.equal(cancelled.feed.currentSnapshotId,current);assert.notEqual(cancelled.snapshot.status,'COMPLETE');
+  await controller.patch(req,feed.id,{enabled:true});
+  let expireRelease!:(value?:unknown)=>void,expireEntered!:(value?:unknown)=>void;const expireGate=new Promise(resolve=>expireEntered=resolve),expireHeld=new Promise(resolve=>expireRelease=resolve);const expired=syncVulnerabilityFeed(db,feed.id,req.user.email,async()=>{expireEntered();await expireHeld;return response()});await expireGate;await db.vulnerabilityFeed.update({where:{id:feed.id},data:{leaseUntil:new Date(0)}});expireRelease();const late=await expired;assert.equal(late.snapshot.status,'FAILED');assert.equal(late.feed.currentSnapshotId,current);
+  await db.vulnerabilityFeed.update({where:{id:feed.id},data:{nextSyncAt:new Date(Date.now()+3600000)}});assert.equal((await syncDueVulnerabilityFeeds(db,response)).length,0);
+  await db.vulnerabilityFeed.update({where:{id:feed.id},data:{nextSyncAt:new Date(0)}});assert.equal((await syncDueVulnerabilityFeeds(db,response)).length,1);assert.equal((await syncDueVulnerabilityFeeds(db,response)).length,0);
+  await assert.rejects(()=>controller.create({user:{role:'VIEWER'}},{name:'forbidden',provider:'CISA_KEV',config:{}}));await assert.rejects(()=>controller.list({user:{role:'ANALYST',dataScope:{restricted:true}}},{}));
+  const debian=await controller.create(req,{name:'Debian full stream',provider:'DEBIAN',config:{release:'bookworm'}});
+  const packageData={
+   'CVE-2024-1001':{description:'Vendor triage',releases:{bookworm:{status:'resolved',fixed_version:'2.0-1',urgency:'medium'}}},
+  };
+  function streamResponse(reverse=false,broken=false){const order=Array.from({length:501},(_,i)=>'sample-'+i);if(reverse)order.reverse();return async()=>({sourceSha256:'c'.repeat(64),document:{abort(){},entries:(async function*(){for(const name of order)yield [name,packageData] as [string,unknown];if(broken)throw Error('truncated tracker body')})()}})}
+  const complete=await syncVulnerabilityFeed(db,debian.id,req.user.email,streamResponse());assert.equal(complete.snapshot.status,'COMPLETE');assert.equal(complete.snapshot.recordCount,501);assert.ok(complete.feed.currentSnapshotId);
+  const repeated=await syncVulnerabilityFeed(db,debian.id,req.user.email,streamResponse(true));assert.equal(repeated.snapshot.status,'UNCHANGED');assert.equal(repeated.feed.currentSnapshotId,complete.snapshot.id);assert.equal(await db.vulnerabilityRecord.count({where:{snapshotId:repeated.snapshot.id}}),0);
+  const truncated=await syncVulnerabilityFeed(db,debian.id,req.user.email,streamResponse(false,true));assert.equal(truncated.snapshot.status,'FAILED');assert.equal(truncated.feed.currentSnapshotId,complete.snapshot.id);assert.equal((await controller.records(req,debian.id,{})).total,501);
+  const queued=await controller.sync(req,debian.id);assert.ok('queued' in queued&&queued.queued);assert.equal(queued.feed.currentSnapshotId,complete.snapshot.id);assert.equal(queued.feed.status,'IDLE');
+  await db.vulnerabilityFeed.update({where:{id:debian.id},data:{status:'SYNCING',leaseUntil:new Date(Date.now()+300000)}});await assert.rejects(()=>controller.sync(req,debian.id));await controller.patch(req,debian.id,{enabled:false});await assert.rejects(()=>controller.sync(req,debian.id));
+ }finally{await db?.$disconnect();await admin.$executeRawUnsafe('DROP SCHEMA "'+schema+'" CASCADE');await admin.$disconnect()}
+});

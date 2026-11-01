@@ -1,0 +1,16 @@
+node_modules/
+dist/
+.env
+.env.*
+!.env.example
+coverage/
+playwright-report/
+.artifacts/
+.idea/
+*.log
+
+!.env.prod.example
+.data/
+storage/
+.DS_Store
+.superpowers/

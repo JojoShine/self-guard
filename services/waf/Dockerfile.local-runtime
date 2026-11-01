@@ -1,0 +1,15 @@
+# Local/offline build: first build Dockerfile.toolchain. No registry fetch needed.
+FROM selfguard-waf-toolchain:1.27.3-pcre2 AS build
+WORKDIR /src
+COPY services/waf/go.mod services/waf/*.go ./
+COPY services/waf/testdata ./testdata
+RUN go test -tags pcre2 ./... && CGO_ENABLED=1 go build -trimpath -tags pcre2 -o /waf .
+FROM scratch
+COPY --from=build /lib/ /lib/
+COPY --from=build /usr/lib/libpcre2-8.so.0* /usr/lib/
+COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+COPY --from=build /waf /waf
+USER 10001:10001
+ENV WAF_STATE_DIR=/state
+EXPOSE 8081
+ENTRYPOINT ["/waf"]

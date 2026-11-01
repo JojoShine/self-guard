@@ -1,0 +1,13 @@
+ALTER TABLE "User" ADD COLUMN "dataScope" JSONB NOT NULL DEFAULT '{}';
+CREATE TABLE "AgentRollout" ("id" TEXT PRIMARY KEY,"version" TEXT NOT NULL,"envelope" JSONB NOT NULL,"artifactUrl" TEXT NOT NULL,"status" TEXT NOT NULL DEFAULT 'DRAFT',"batchSize" INTEGER NOT NULL DEFAULT 1,"targetIds" JSONB NOT NULL,"createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,"updatedAt" TIMESTAMP(3) NOT NULL);
+CREATE TABLE "AgentRolloutTarget" ("id" TEXT PRIMARY KEY,"rolloutId" TEXT NOT NULL REFERENCES "AgentRollout"("id") ON DELETE CASCADE,"assetId" TEXT NOT NULL,"ordinal" INTEGER NOT NULL,"status" TEXT NOT NULL DEFAULT 'PENDING',"claimedAt" TIMESTAMP(3),"reportedAt" TIMESTAMP(3),"evidence" TEXT);
+CREATE UNIQUE INDEX "AgentRolloutTarget_rolloutId_assetId_key" ON "AgentRolloutTarget"("rolloutId","assetId");
+CREATE TABLE "TelemetryEvent" ("id" TEXT PRIMARY KEY,"source" TEXT NOT NULL,"externalId" TEXT NOT NULL,"sourceKey" TEXT NOT NULL,"assetId" TEXT,"siteId" TEXT,"occurredAt" TIMESTAMP(3) NOT NULL,"receivedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,"expiresAt" TIMESTAMP(3) NOT NULL,"type" TEXT NOT NULL,"data" JSONB NOT NULL);
+CREATE UNIQUE INDEX "TelemetryEvent_sourceKey_externalId_key" ON "TelemetryEvent"("sourceKey","externalId");
+CREATE INDEX "TelemetryEvent_assetId_occurredAt_idx" ON "TelemetryEvent"("assetId","occurredAt");
+CREATE INDEX "TelemetryEvent_siteId_occurredAt_idx" ON "TelemetryEvent"("siteId","occurredAt");
+CREATE INDEX "TelemetryEvent_expiresAt_idx" ON "TelemetryEvent"("expiresAt");
+CREATE TABLE "CorrelationRule" ("id" TEXT PRIMARY KEY,"name" TEXT NOT NULL,"severity" TEXT NOT NULL,"enabled" BOOLEAN NOT NULL DEFAULT true,"config" JSONB NOT NULL,"createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,"updatedAt" TIMESTAMP(3) NOT NULL);
+CREATE TABLE "CorrelationMatch" ("id" TEXT PRIMARY KEY,"ruleId" TEXT NOT NULL,"groupKey" TEXT NOT NULL,"windowStart" TIMESTAMP(3) NOT NULL,"findingId" TEXT NOT NULL,"incidentId" TEXT);
+CREATE UNIQUE INDEX "CorrelationMatch_ruleId_groupKey_windowStart_key" ON "CorrelationMatch"("ruleId","groupKey","windowStart");
+CREATE TABLE "Delivery" ("id" TEXT PRIMARY KEY,"userId" TEXT NOT NULL,"notificationId" TEXT NOT NULL,"status" TEXT NOT NULL DEFAULT 'PENDING',"attempts" INTEGER NOT NULL DEFAULT 0,"availableAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,"lastError" TEXT,"createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,"updatedAt" TIMESTAMP(3) NOT NULL);

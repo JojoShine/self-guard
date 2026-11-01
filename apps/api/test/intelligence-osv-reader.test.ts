@@ -1,0 +1,7 @@
+import {test} from 'node:test';import assert from 'node:assert/strict';import {mkdtempSync,writeFileSync,rmSync} from 'node:fs';import {tmpdir} from 'node:os';import {join} from 'node:path';import {osvArchiveDocument} from '../src/intelligence-osv-archive';import {withRawArchive,currentRawArchive} from '../src/intelligence-artifacts';
+test('Ubuntu source manifest distinguishes whole archive entries from selected-release records',async()=>{
+ const dir=mkdtempSync(join(tmpdir(),'osv-reader-')),file=join(dir,'fixture.cjs'),previous=process.env.INTELLIGENCE_ARCHIVE_READER,sha='a'.repeat(64);process.env.INTELLIGENCE_ARCHIVE_READER=process.execPath;
+ try{writeFileSync(file,'process.stdout.write('+JSON.stringify(JSON.stringify({kind:'record',name:'UBUNTU-CVE-2026-12345.json',document:{id:'UBUNTU-CVE-2026-12345'}})+'\n'+JSON.stringify({kind:'complete',entries:72992,emittedEntries:1,decodedBytes:8323806672,sha256:sha,crc32c:'QW8Ipw=='})+'\n')+')');
+ await withRawArchive(1024,async()=>{const archive=osvArchiveDocument(file,sha,'Ubuntu','1793417595117757','QW8Ipw==');archive.bindUbuntuRelease!('24.04');const records=[];for await(const entry of archive.entries)records.push(entry);archive.validate();assert.equal(records.length,1);assert.equal((currentRawArchive()!.manifest.zip as any).entries,72992);assert.equal((currentRawArchive()!.manifest.zip as any).emittedEntries,1);});
+ }finally{if(previous===undefined)delete process.env.INTELLIGENCE_ARCHIVE_READER;else process.env.INTELLIGENCE_ARCHIVE_READER=previous;rmSync(dir,{recursive:true,force:true})}
+});

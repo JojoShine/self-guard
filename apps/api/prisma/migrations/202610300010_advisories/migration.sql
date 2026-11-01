@@ -1,0 +1,2 @@
+CREATE TABLE "AdvisorySource" ("id" TEXT PRIMARY KEY,"name" TEXT NOT NULL,"url" TEXT NOT NULL,"format" TEXT NOT NULL DEFAULT 'OSV',"enabled" BOOLEAN NOT NULL DEFAULT true,"lastSyncAt" TIMESTAMP(3),"status" TEXT NOT NULL DEFAULT 'IDLE',"error" TEXT,"createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,"updatedAt" TIMESTAMP(3) NOT NULL);
+CREATE UNIQUE INDEX "AdvisorySource_url_key" ON "AdvisorySource"("url");

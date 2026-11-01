@@ -1,0 +1,1 @@
+ALTER TABLE "Task" ADD COLUMN "templateVersion" TEXT NOT NULL DEFAULT '1';

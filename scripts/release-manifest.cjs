@@ -1,0 +1,5 @@
+const fs=require('node:fs'),crypto=require('node:crypto'),{execFileSync}=require('node:child_process');
+const folder=process.argv[2],sha=process.env.GITHUB_SHA;if(!/^[a-f0-9]{40}$/.test(sha||''))throw Error('Exact source revision required');
+const digest=component=>{const name='ghcr.io/jojoshine/self-guard'+(component==='waf'?'-waf':'');const images=JSON.parse(execFileSync('docker',['image','inspect',name+':sha-'+sha],{encoding:'utf8'}));const ref=images[0].RepoDigests.find(s=>s.startsWith(name+'@sha256:'));if(!ref)throw Error('Published digest missing');return ref;};
+const result={version:'candidate-'+sha,source:'https://github.com/JojoShine/self-guard',commit:sha,dbMode:'bundled',webMode:'static',basePath:'/self-guard',appImage:digest('app'),wafImage:digest('waf'),postgresImage:JSON.parse(fs.readFileSync(folder+'/acceptance.json')).postgresImage,staticFile:'self-guard-web.tar.gz',staticSha256:crypto.createHash('sha256').update(fs.readFileSync(folder+'/self-guard-web.tar.gz')).digest('hex')};
+fs.writeFileSync(folder+'/release-manifest.json',JSON.stringify(result,null,2)+'\n');

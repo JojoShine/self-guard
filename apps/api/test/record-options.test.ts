@@ -1,0 +1,46 @@
+import 'reflect-metadata';
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import {randomBytes,randomUUID} from 'node:crypto';
+import {spawnSync} from 'node:child_process';
+import {Db} from '../src/db';
+import {Platform} from '../src/platform';
+import {RecordOptionsController} from '../src/record-options';
+
+test('lightweight choices preserve authorization, full pagination, selected identities and stable business assignment', {skip:!process.env.DATABASE_URL}, async()=>{
+ const schema='record_options_'+randomBytes(12).toString('hex'),admin=new Db(),url=new URL(process.env.DATABASE_URL!);url.searchParams.set('schema',schema);let db:Db|undefined;
+ try{
+  await admin.$executeRawUnsafe('CREATE SCHEMA "'+schema+'"');
+  const migrated=spawnSync(process.execPath,['node_modules/prisma/build/index.js','migrate','deploy'],{env:{...process.env,DATABASE_URL:url.href},encoding:'utf8'});assert.equal(migrated.status,0,migrated.stderr);db=new Db({datasourceUrl:url.href});
+  const actor=await db.user.create({data:{email:'record-options@fixture.test',name:'Owned directory operator',role:'ADMIN',passwordHash:'owned-test-not-used-for-auth'}}),req={user:actor},controller=new RecordOptionsController(db),platform=new Platform(db);
+  const group=await controller.createBusiness(req,{name:'Payments'}),same=await controller.createBusiness(req,{name:' Payments '});assert.equal(group.stableId,same.stableId);
+  await controller.createBusiness(req,{name:'Future business'});
+  const assets=Array.from({length:181},(_,i)=>({id:randomUUID(),hostname:'Owned choice '+String(i).padStart(3,'0'),os:'linux',business:i<180?'Payments':'Private business',inventory:{secret:'never include full inventory in choices'},executorPublicKey:Buffer.alloc(32,3).toString('base64')}));
+  await db.asset.createMany({data:assets});
+  const scoped={user:{...actor,role:'ANALYST',dataScope:{restricted:true,businesses:['Payments'],assetIds:[],canReadEvidence:false}}};
+  const first=await controller.list(scoped,'assets',{});assert.equal(first.items.length,15);assert.equal(first.total,180);assert.deepEqual(Object.keys(first.items[0]).sort(),['archivedAt','business','hostname','id','ip']);assert.ok(!JSON.stringify(first).includes('never include'));
+  const second=await controller.list(scoped,'assets',{page:2,pageSize:15});assert.equal(second.items.length,15);assert.equal(new Set([...first.items,...second.items].map(row=>row.id)).size,30);
+  const distant=await controller.list(scoped,'assets',{q:'Owned choice 179'});assert.equal(distant.items[0].id,assets[179].id);
+  assert.equal((await controller.list(scoped,'assets',{selected:assets[180].id})).total,0);
+  const explicit={user:{...scoped.user,dataScope:{...scoped.user.dataScope,businesses:[],assetIds:[assets[180].id]}}};assert.equal((await controller.list(explicit,'assets',{})).total,1);
+  await db.asset.update({where:{id:assets[179].id},data:{archivedAt:new Date()}});assert.equal((await controller.list(scoped,'assets',{activeOnly:'true'})).total,179);assert.ok((await controller.list(scoped,'assets',{selected:assets[179].id})).items[0].archivedAt);
+  const risk=await db.finding.create({data:{assetId:assets[0].id,dedupKey:'owned-choice-risk',externalId:'owned-risk',title:'Owned risk title',kind:'RISK',severity:'HIGH',source:'fixture',evidence:'Never expose risk evidence through the choice directory'}});
+  await db.finding.create({data:{assetId:assets[180].id,dedupKey:'private-choice-risk',externalId:'private-risk',title:'Private risk title',kind:'RISK',severity:'HIGH',source:'fixture',evidence:'private'}});
+  const risks=await controller.list(scoped,'findings',{assetId:assets[0].id,kind:'RISK'});assert.equal(risks.total,1);assert.equal(risks.items[0].id,risk.id);assert.ok(!Object.hasOwn(risks.items[0],'evidence'));
+  assert.equal((await controller.list(scoped,'findings',{assetId:assets[180].id,kind:'RISK'})).total,0);
+  const batch=await db.taskBatch.create({data:{title:'Owned batch',createdBy:actor.email}}),taskData={title:'Owned pending task',assetId:assets[0].id,template:'FILE_PERMISSION',parameters:{path:'/owned/fixture',mode:'0600'},requestedBy:actor.email,expiresAt:new Date(Date.now()+86400000)};
+  const task=await db.task.create({data:taskData});await db.task.create({data:{...taskData,title:'Already grouped task',batchId:batch.id}});
+  const eligible=await controller.list(scoped,'tasks',{status:'PENDING',unbatched:'true'});assert.equal(eligible.total,1);assert.equal(eligible.items[0].id,task.id);assert.ok(!Object.hasOwn(eligible.items[0],'parameters'));
+  await db.site.create({data:{name:'Owned site',hostname:'owned.fixture.test',upstream:'http://upstream.invalid',config:{hidden:'configuration'}}});
+  const sites=await controller.list(req,'sites',{});assert.equal(sites.total,1);assert.ok(!Object.hasOwn(sites.items[0],'config'));await assert.rejects(()=>controller.list(scoped,'sites',{}));
+  assert.equal((await controller.list(scoped,'businesses',{})).total,1);assert.equal((await controller.list(req,'businesses',{q:'Future'})).items[0].id,'Future business');
+  assert.equal((await controller.list(scoped,'businesses',{selected:'Future business'})).total,0);
+  const legacy=await controller.list(explicit,'businesses',{selected:'Private business'});assert.equal(legacy.items[0].id,'Private business');assert.equal((legacy.items[0] as any).legacy,true);
+  await assert.rejects(()=>controller.createBusiness(scoped,{name:'Cannot create outside scope'}));await assert.rejects(()=>controller.createBusiness({user:{...actor,role:'VIEWER'}},{name:'Cannot create as viewer'}));
+  await assert.rejects(()=>controller.createBusiness(req,{name:'x'.repeat(201)}));
+  await assert.rejects(()=>controller.list(req,'assets',{selected:'not-a-uuid'}));await assert.rejects(()=>controller.list(req,'users',{}));
+  const created=await platform.create('assets',{hostname:'New business host',os:'linux',business:'New business'},actor.email);const identity=await db.businessGroup.findUniqueOrThrow({where:{name:'New business'}});
+  await platform.patch('assets',created.id,{business:'Payments'},actor.email);assert.equal((await db.businessGroup.findUniqueOrThrow({where:{name:'Payments'}})).id,group.stableId);
+  await platform.patch('assets',created.id,{business:null},actor.email);assert.equal((await db.asset.findUniqueOrThrow({where:{id:created.id}})).business,null);assert.equal((await db.businessGroup.findUniqueOrThrow({where:{name:'New business'}})).id,identity.id);
+ }finally{await db?.$disconnect();await admin.$executeRawUnsafe('DROP SCHEMA "'+schema+'" CASCADE');await admin.$disconnect()}
+});

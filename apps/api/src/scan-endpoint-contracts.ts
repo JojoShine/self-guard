@@ -1,0 +1,6 @@
+import {z} from 'zod';
+const fields=z.object({hostname:z.string().min(1).max(253),port:z.number().int().min(1).max(65535),protocol:z.enum(['http','https','tcp','tls']),allowedPaths:z.array(z.string().min(1).max(2048)).max(100).default([]),excludedPaths:z.array(z.string().max(2048)).max(100).default([])}).strict();
+function validPaths(value:{protocol:string;allowedPaths:string[];excludedPaths:string[]}){return ['http','https'].includes(value.protocol)?value.allowedPaths.length>0:value.allowedPaths.length===0&&value.excludedPaths.length===0}
+// Retain the existing HTTP field order used by signed preview bindings.
+export const approvedEndpoint=z.object({hostname:fields.shape.hostname,port:fields.shape.port,protocol:fields.shape.protocol,addresses:z.array(z.string().max(100)).min(1).max(32),allowedPaths:fields.shape.allowedPaths,excludedPaths:fields.shape.excludedPaths}).strict().refine(validPaths,'HTTP/HTTPS需要允许路径；TCP/TLS只批准明确主机和端口，不接受Web路径');
+export const probeScopeCandidate=fields.extend({allowedPaths:z.array(z.string().min(1).max(2048)).max(20).default([]),excludedPaths:z.array(z.string().max(2048)).max(20).default([])}).refine(validPaths,'HTTP/HTTPS需要允许路径；TCP/TLS不使用Web路径，请清空路径后重新预检');

@@ -1,0 +1,2 @@
+ALTER TABLE "Rule" ADD COLUMN "intervalSeconds" INTEGER;
+ALTER TABLE "Rule" ADD COLUMN "nextRunAt" TIMESTAMP(3);

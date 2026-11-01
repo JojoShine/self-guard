@@ -1,0 +1,10 @@
+import {it,expect} from 'vitest';import {renderToStaticMarkup} from 'react-dom/server';import {ActiveNetworkEvidence} from './ActiveNetworkEvidence';
+it('shows actual service content and scanner socket direction without presenting an attack chain',()=>{
+ const html=renderToStaticMarkup(<ActiveNetworkEvidence record={{outcome:'CONFIRMED',description:'服务返回明确旧版本标识',remediation:'核对客户端后升级并复查',endpoint:{hostname:'owned.fixture.test',port:8091,protocol:'tcp'},check:{kind:'NETWORK',protocol:'tcp',rule:{kind:'TCP_BANNER',value:'legacy-service 1.0'}},networkProof:{checkKind:'TCP_BANNER',startedAt:'2026-11-01T00:00:00Z',durationMs:4,bannerPreview:'owned-legacy-service 1.0\r\n',bannerBytes:26,bannerSha256:'a'.repeat(64),connections:[{source:'172.20.0.2:49152',destination:'172.20.0.3:8091',transport:'TCP'}]}}}/>);for(const text of ['owned-legacy-service 1.0','172.20.0.2:49152','172.20.0.3:8091','核对客户端后升级并复查','扫描实际连接','不代表攻击者流量','不代表成功利用'])expect(html).toContain(text);expect(html).not.toContain('HTTP状态码');
+});
+it('separates handshake observation, actual certificate dates and failed trust verification',()=>{
+ const html=renderToStaticMarkup(<ActiveNetworkEvidence record={{outcome:'OBSERVED',check:{rule:{kind:'TLS_HANDSHAKE'}},networkProof:{checkKind:'TLS_HANDSHAKE',validationReason:'TLS_CERTIFICATE_UNTRUSTED',tls:{verified:false,version:'TLS 1.3',cipherSuite:'TLS_AES_128_GCM_SHA256',subject:'owned.fixture.test',notBefore:'2026-10-01T00:00:00Z',notAfter:'2026-11-02T00:00:00Z',certificateSha256:'b'.repeat(64)}}}}/>);for(const text of ['观察结果','不创建风险','TLS 1.3','owned.fixture.test','信任校验未通过','证书链未获信任'])expect(html).toContain(text);
+});
+it('does not draw a connection from the approved endpoint when no actual socket was recorded',()=>{
+ const html=renderToStaticMarkup(<ActiveNetworkEvidence record={{outcome:'INCONCLUSIVE',reason:'TLS_HANDSHAKE_INCOMPLETE',endpoint:{hostname:'approved-only.fixture.test',port:443,protocol:'tls'},check:{rule:{kind:'TLS_CERT_EXPIRED'}}}}/>);expect(html).toContain('尚未取得实际连接证据');expect(html).toContain('无法判定');expect(html).not.toContain('扫描进程地址');
+});

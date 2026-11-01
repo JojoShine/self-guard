@@ -1,0 +1,21 @@
+services:
+  api:
+    environment:
+      API_TLS_CERT: /tls/api.crt
+      API_TLS_KEY: /tls/api.key
+    volumes:
+      - ./.artifacts/tls-fixture:/tls:ro
+  api-replica:
+    environment:
+      API_TLS_CERT: /tls/api.crt
+      API_TLS_KEY: /tls/api.key
+    volumes:
+      - ./.artifacts/tls-fixture:/tls:ro
+  gateway:
+    environment:
+      API_UPSTREAMS: https://api:4000,https://api-replica:4000
+      TLS_CERT: /tls/api.crt
+      TLS_KEY: /tls/api.key
+      NODE_EXTRA_CA_CERTS: /tls/api.crt
+    volumes:
+      - ./.artifacts/tls-fixture:/tls:ro

@@ -1,0 +1,2 @@
+export class SourceFetchError extends Error{constructor(message:string,public retryAfterSeconds=60){super(message)}}
+export function retryAfterSeconds(value:unknown,now=Date.now()){const text=String(value??'').trim(),numeric=/^\d+$/.test(text)?Number(text):NaN,seconds=Number.isFinite(numeric)?numeric:Math.ceil((Date.parse(text)-now)/1000);return Number.isFinite(seconds)&&seconds>0?Math.min(seconds,86400):60}

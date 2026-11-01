@@ -1,0 +1,1 @@
+{"Task":{"id":"t","template":"FILE_PERMISSION","parameters":{"RuleID":"","RuleName":"","RuleSeverity":"","originalTaskId":"","Type":"","Service":"","State":"","ExpectedState":"","Key":"","ExpectedValue":"","Value":"","Path":"/tmp/TestRemediationBoundary1231460241/001/file","Mode":"0600"},"expiresAt":"2026-11-01T14:48:13.765307387Z"},"PreviousMode":"0644"}

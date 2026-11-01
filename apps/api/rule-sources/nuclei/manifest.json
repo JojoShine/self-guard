@@ -1,0 +1,46 @@
+{
+  "license": "MIT",
+  "retrievedVia": "GitHub connector; fixed commit and Git blob identities",
+  "files": [
+    {
+      "file": "git-config.yaml",
+      "repository": "projectdiscovery/nuclei-templates",
+      "commit": "e6adf540f147016ae21fe5b1751f472a486139db",
+      "repositoryPath": "http/exposures/configs/git-config.yaml",
+      "gitBlobSha1": "f5ff87ae6ab7b0cd2fcfec65e2dba17abb2e2eed",
+      "sourceUrl": "https://github.com/projectdiscovery/nuclei-templates/blob/e6adf540f147016ae21fe5b1751f472a486139db/http/exposures/configs/git-config.yaml",
+      "sha256": "bd8bdfa0b5ed5bf4d3712edb793adfd0987d9282e51c6f7d673bf14b9e4dd524",
+      "size": 1237
+    },
+    {
+      "file": "exposed-gitignore.yaml",
+      "repository": "projectdiscovery/nuclei-templates",
+      "commit": "e6adf540f147016ae21fe5b1751f472a486139db",
+      "repositoryPath": "http/exposures/configs/exposed-gitignore.yaml",
+      "gitBlobSha1": "f2cf4b185b098ea5232ef5fc0d958ae273d48fe6",
+      "sourceUrl": "https://github.com/projectdiscovery/nuclei-templates/blob/e6adf540f147016ae21fe5b1751f472a486139db/http/exposures/configs/exposed-gitignore.yaml",
+      "sha256": "c8cd9fa4c56e5f7c6266d2c362a995bb3d53dafbbac036f7a6341e397a2d6a7e",
+      "size": 1434
+    },
+    {
+      "file": "laravel-env.yaml",
+      "repository": "projectdiscovery/nuclei-templates",
+      "commit": "e6adf540f147016ae21fe5b1751f472a486139db",
+      "repositoryPath": "http/exposures/configs/laravel-env.yaml",
+      "gitBlobSha1": "fc81dbd31f7c4dab0614cf692e5ab2d217bbdbd4",
+      "sourceUrl": "https://github.com/projectdiscovery/nuclei-templates/blob/e6adf540f147016ae21fe5b1751f472a486139db/http/exposures/configs/laravel-env.yaml",
+      "sha256": "37566f5fb1764be65072836390d4ff3f40af4917ecf00bdb08dbfcf862bb09c7",
+      "size": 1888
+    },
+    {
+      "file": "LICENSE.projectdiscovery",
+      "repository": "projectdiscovery/nuclei-templates",
+      "commit": "e6adf540f147016ae21fe5b1751f472a486139db",
+      "repositoryPath": "LICENSE.md",
+      "gitBlobSha1": "93c6a78f51fce232923d923e5e1fa1080eeb99df",
+      "sourceUrl": "https://github.com/projectdiscovery/nuclei-templates/blob/e6adf540f147016ae21fe5b1751f472a486139db/LICENSE.md",
+      "sha256": "5fa6644d2dd1987a79c06f4af210d2cf8cfc4ee799999029d0f9980c9cf95a2c",
+      "size": 1079
+    }
+  ]
+}
