@@ -1,5 +1,6 @@
 // Isolated production-mode acceptance; never connects to the developer database.
 const fs=require('node:fs'),path=require('node:path'),crypto=require('node:crypto'),assert=require('node:assert/strict'),{spawnSync}=require('node:child_process');
+const nativeFetch=globalThis.fetch;globalThis.fetch=async(...args)=>{try{return await nativeFetch(...args)}catch(error){error.message+=' at '+String(args[0])+' ('+(error.cause?.code||error.cause?.message||'network')+')';throw error;}};
 const root=process.cwd(),dir=path.join(root,'.artifacts/deployment-ci'),project='self-guard-ci-'+process.pid,port=31809;
 function run(args,options={}){const r=spawnSync('docker',args,{encoding:'utf8',maxBuffer:8*1024*1024,...options});if(r.status!==0)throw Error('Docker operation failed: '+args.slice(0,4).join(' ')+'\n'+r.stderr);return r.stdout.trim()}
 function compose(args,options={}){return run(['compose','--env-file',path.join(dir,'.env.prod'),'-f',path.join(dir,'compose.prod.yaml'),...args],options)}
@@ -13,15 +14,15 @@ run(['run','--rm','-v',dir+':/ci','--entrypoint','sh',pgDigest,'-c','chown -R 99
 let nginx=false;try{
  compose(['up','-d','--wait','postgres']);compose(['run','--rm','--no-deps','migrate']);compose(['run','--rm','--no-deps','migrate']);
  const bootstrap=pass=>compose(['run','--rm','--no-deps','-e','ADMIN_EMAIL','-e','ADMIN_PASSWORD','app','/app/bin/bootstrap'],{env:{...process.env,ADMIN_EMAIL:'ci@selfguard.local',ADMIN_PASSWORD:pass}});bootstrap(password);bootstrap(secret());
- compose(['up','-d','--wait','app','waf']);
+ compose(['up','-d','--wait','app','waf']);console.log('PASS: production containers ready');
  const base='http://127.0.0.1:'+port+'/self-guard';const health=await fetch(base+'/healthz');assert.equal(health.status,200);assert.equal((await health.json()).ready,true);
  assert.equal((await fetch('http://127.0.0.1:'+port+'/api/health/ready')).status,404);
  const login=await fetch(base+'/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:'ci@selfguard.local',password})});assert.equal(login.status,200,'Repeated bootstrap must preserve initial password');const token=(await login.json()).token;
  const assets=await fetch(base+'/api/assets',{headers:{Authorization:'Bearer '+token}});assert.equal((await assets.json()).total,0);
  const platform=await fetch(base+'/api/agent-platform',{headers:{Authorization:'Bearer '+token}});const config=await platform.json();assert.equal(config.configured,true);assert.equal(config.server,env.AGENT_PLATFORM_URL);
  compose(['exec','-T','app','node','-e',`const assert=require('node:assert/strict'),{PrismaClient}=require('@prisma/client'),db=new PrismaClient();(async()=>{const [role]=await db.$queryRawUnsafe("SELECT rolsuper,rolcreatedb,rolcreaterole FROM pg_roles WHERE rolname=current_user");assert.deepEqual(role,{rolsuper:false,rolcreatedb:false,rolcreaterole:false});for(const sql of ['CREATE TABLE runtime_must_not_create(id int)','UPDATE "_prisma_migrations" SET checksum=checksum']){let denied=false;try{await db.$executeRawUnsafe(sql)}catch(e){denied=e.meta?.code==='42501'}assert.ok(denied,'Runtime must not execute DDL or change migration history')}assert.equal(await db.user.count(),1)})().finally(()=>db.$disconnect()).catch(e=>{console.error(e.message);process.exitCode=1})`]);
- compose(['restart','postgres']);compose(['up','-d','--wait','app']);assert.equal((await fetch(base+'/healthz')).status,200);
- const staticRoot=path.join(root,'.artifacts/ci-web');fs.mkdirSync(path.join(staticRoot,'self-guard'),{recursive:true});fs.cpSync('apps/web/dist',path.join(staticRoot,'self-guard'),{recursive:true});
+ console.log('PASS: login, identity and least-privilege checks');compose(['restart','postgres']);compose(['up','-d','--wait','app']);assert.equal((await fetch(base+'/healthz')).status,200);
+ console.log('PASS: database persistence restart');const staticRoot=path.join(root,'.artifacts/ci-web');fs.mkdirSync(path.join(staticRoot,'self-guard'),{recursive:true});fs.cpSync('apps/web/dist',path.join(staticRoot,'self-guard'),{recursive:true});
  fs.writeFileSync(path.join(dir,'nginx.conf'),'events {}\nhttp { include /etc/nginx/mime.types; server { listen 31810; include /etc/nginx/self-guard.conf; } }\n');
  let fragment=fs.readFileSync('nginx/business.conf.example','utf8').replaceAll('31009',String(port));fs.writeFileSync(path.join(dir,'business.conf'),fragment);
  run(['run','-d','--name',project+'-nginx','--network','host','-v',path.join(dir,'nginx.conf')+':/etc/nginx/nginx.conf:ro','-v',path.join(dir,'business.conf')+':/etc/nginx/self-guard.conf:ro','-v',staticRoot+':/opt/self-guard/web/current:ro','nginx:1.27-alpine']);nginx=true;
