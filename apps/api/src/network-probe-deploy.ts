@@ -114,6 +114,9 @@ try:
   with open(vendor) as f: engine=yaml.safe_load(f)
   if not isinstance(engine,dict): raise RuntimeError('VENDOR_CONFIG_INVALID')
   engine['outputs']=[{'eve-log':{'enabled':True,'filetype':'regular','filename':'eve.json','filemode':'0640','threaded':False,'types':[{'alert':{'payload':False,'payload-printable':False,'packet':False,'tagged-packets':False}},{'http':{'extended':False}},'dns',{'tls':{'extended':False}},'flow','anomaly',{'stats':{'totals':True,'threads':False}}]}}]
+  engine['threshold-file']='/etc/selfguard/threshold.config'
+  engine.setdefault('detect',{})['sgh-mpm-caching']=False
+  write(engineconf+'/threshold.config',b'')
   engine['classification-file']='/etc/selfguard/classification.config'
   engine['reference-config-file']='/etc/selfguard/reference.config'
   engine['stats']={'enabled':True,'interval':8}; engine['default-log-dir']='/var/log/suricata'

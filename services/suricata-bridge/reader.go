@@ -136,6 +136,8 @@ func (r *reader) read(c Cursor, start bool) ([]Event, Cursor, Health, error) {
 		}
 		return events, c, h, e
 	}
+	h.Status = "ERROR"
+	h.DetailCode = "READ_ERROR"
 	if gap {
 		h.RotationGaps++
 	}
@@ -228,10 +230,9 @@ func (r *reader) read(c Cursor, start bool) ([]Event, Cursor, Health, error) {
 		}
 	}
 	c.Anchor = anchor(r.f, c.Offset)
-	if len(events) > 0 {
-		h.Status = "READING"
-		h.DetailCode = "OK"
-	}
+	// Reaching EOF proves readability even between periodic engine events.
+	h.Status = "READING"
+	h.DetailCode = "OK"
 	if h.InvalidLines > 0 {
 		h.Status = "ERROR"
 		h.DetailCode = "INVALID_EVE"

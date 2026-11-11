@@ -178,3 +178,20 @@ for bad in [stat.S_IFLNK,stat.S_IFDIR]:
  assert.ok(install.includes("copy_vendor(export,'suricata.yaml',vendor)"));
  assert.ok(!install.includes('DAC_OVERRIDE'));
 });
+test('generated engine settings disable vendor disk caching and use an empty managed threshold file',()=>{
+ const script=generated('INSTALL');
+ const execution=spawnSync('python3',['-c',`import ast,sys,json
+nodes=ast.parse(sys.stdin.read()); files={}
+values={'engine':{'detect':{'profile':'medium','sgh-mpm-caching':True}},'engineconf':'/engine','write':lambda path,data:files.update({path:data.decode()})}
+for node in ast.walk(nodes):
+ if isinstance(node,ast.Assign) and isinstance(node.targets[0],ast.Subscript):
+  source=ast.unparse(node.targets[0])
+  if 'threshold-file' in source or 'sgh-mpm-caching' in source: exec(compile(ast.Module(body=[node],type_ignores=[]),'generated','exec'),values)
+ if isinstance(node,ast.Expr) and isinstance(node.value,ast.Call) and isinstance(node.value.func,ast.Name) and node.value.func.id=='write' and 'threshold.config' in ast.unparse(node.value.args[0]): exec(compile(ast.Module(body=[node],type_ignores=[]),'generated','exec'),values)
+assert values['engine']['threshold-file']=='/etc/selfguard/threshold.config'
+assert values['engine']['detect']['sgh-mpm-caching'] is False
+assert values['engine']['detect']['profile']=='medium'
+assert files['/engine/threshold.config']==''
+`],{input:script,encoding:'utf8'});
+ assert.equal(execution.status,0,execution.stderr);
+});

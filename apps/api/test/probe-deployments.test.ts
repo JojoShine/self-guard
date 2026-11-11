@@ -58,3 +58,23 @@ test('access check accepts only fixed environment results and never marks readin
  for(const marker of ['ROOT_REQUIRED','SYSTEMD_REQUIRED'])assert.equal(accessCheckResult('PROBE_CHECK_'+marker).status,'FAILED');
  for(const output of ['active','constructor','PROBE_CHECK_RUNNING\nprivate text','PROBE_COMMAND_OK'])assert.throws(()=>accessCheckResult(output));
 });
+
+test('completed stop overrides old heartbeat while a later heartbeat exposes continued collection',()=>{
+ const now=Date.now(),source={enabled:true,tokenHash:'token',issuedAssetTokenHash:'asset',version:2,lastReportAt:new Date(now),health:{state:'RUNNING',version:'0.1.6',configurationVersion:2}},stop={kind:'PROBE_STOP',status:'SUCCEEDED',updatedAt:new Date(now)};
+ assert.equal(probeReadiness({kind:'ACCESS',source},'asset',now,stop).state,'STOPPED');
+ assert.equal(probeReadiness({kind:'ACCESS',source:{...source,lastReportAt:null}},'asset',now,stop).state,'STOPPED');
+ assert.equal(probeReadiness({kind:'ACCESS',source:{...source,lastReportAt:new Date(now+1)}},'asset',now,stop).state,'ERROR');
+ assert.equal(probeReadiness({kind:'ACCESS',source:{...source,enabled:false,lastReportAt:new Date(now+1)}},'asset',now,stop).state,'DISABLED');
+ for(const status of ['QUEUED','RUNNING','FAILED','UNKNOWN'])assert.equal(probeReadiness({kind:'ACCESS',source},'asset',now,{...stop,status}).state,'READY');
+ assert.equal(probeReadiness({kind:'ACCESS',source},'asset',now,{...stop,kind:'PROBE_INSTALL'}).state,'READY');
+ const network={enabled:true,tokenHash:'token',lastReportedAt:new Date(now),lastMode:'LIVE',health:{},lastStatsAt:null,ruleFile:null,expectedRuleSha256:null,stats:{}};
+ assert.equal(probeReadiness({kind:'NETWORK',source:network},'asset',now,stop).state,'STOPPED');
+ assert.equal(probeReadiness({kind:'NETWORK',source:{...network,lastReportedAt:new Date(now+1)}},'asset',now,stop).state,'ERROR');
+});
+test('latest mutation query excludes CHECK without losing source, kind or asset scope',async()=>{
+ const {latestProbeJobQuery}=await import('../src/probe-deployments');
+ const selection={kind:'ACCESS' as const,sourceId:id},query=latestProbeJobQuery(selection,'asset',true);
+ assert.deepEqual(query.where,{assetId:'asset',kind:{in:['PROBE_INSTALL','PROBE_STOP']},AND:[{config:{path:['sourceId'],equals:id}},{config:{path:['kind'],equals:'ACCESS'}}]});
+ assert.deepEqual(query.orderBy,[{createdAt:'desc'},{id:'desc'}]);
+ assert.deepEqual(latestProbeJobQuery(selection,'asset').where?.kind,{in:['PROBE_CHECK','PROBE_INSTALL','PROBE_STOP']});
+});

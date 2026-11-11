@@ -445,3 +445,53 @@ func TestOutOfWireRangeUTCTimestampBecomesInvalidLine(t *testing.T) {
 		t.Fatal(events, h, err)
 	}
 }
+
+func TestReaderIdleEOFRemainsReading(t *testing.T) {
+	p := t.TempDir() + "/eve.json"
+	if err := os.WriteFile(p, nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+	r := reader{path: p}
+	defer r.close()
+	var c Cursor
+	for i := 0; i < 3; i++ {
+		events, next, h, err := r.read(c, false)
+		if err != nil || len(events) != 0 || h.Status != "READING" || h.DetailCode != "OK" {
+			t.Fatalf("idle readable EVE: %+v %v", h, err)
+		}
+		c = next
+	}
+	if err := os.WriteFile(p, []byte(`{"timestamp":"2026-11-06T00:00:00Z","event_type":"flow","flow":{}}`+"\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 2; i++ {
+		events, next, h, err := r.read(c, false)
+		if err != nil || len(events) != 1-i || h.Status != "READING" || h.DetailCode != "OK" {
+			t.Fatalf("event then idle EVE: %+v events=%d %v", h, len(events), err)
+		}
+		c = next
+	}
+	if err := r.f.Close(); err != nil {
+		t.Fatal(err)
+	}
+	_, _, h, err := r.read(c, false)
+	if err == nil || h.Status != "ERROR" || h.DetailCode != "READ_ERROR" {
+		t.Fatalf("closed handle: %+v %v", h, err)
+	}
+}
+func TestReaderMissingAndInvalidFileHealth(t *testing.T) {
+	p := t.TempDir() + "/eve.json"
+	r := reader{path: p}
+	defer r.close()
+	_, _, h, err := r.read(Cursor{}, false)
+	if err == nil || h.Status != "WAITING" || h.DetailCode != "WAITING_FOR_EVE" {
+		t.Fatalf("missing: %+v %v", h, err)
+	}
+	if err := os.Mkdir(p, 0700); err != nil {
+		t.Fatal(err)
+	}
+	_, _, h, err = r.read(Cursor{}, false)
+	if err == nil || h.Status != "ERROR" || h.DetailCode != "READ_ERROR" {
+		t.Fatalf("nonregular: %+v %v", h, err)
+	}
+}

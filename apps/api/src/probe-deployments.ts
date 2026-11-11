@@ -1,5 +1,5 @@
 import {Body,Controller,Get,Post,Query,Req,UseGuards,Inject,Injectable,OnModuleInit,OnModuleDestroy,BadRequestException,ConflictException,ForbiddenException,Logger} from '@nestjs/common';
-import {AccessSource,AssetRemoteJob,NetworkSensor,User} from '@prisma/client';
+import {AccessSource,AssetRemoteJob,NetworkSensor,User,Prisma} from '@prisma/client';
 import {z} from 'zod';
 import {Db} from './db';
 import {AuthGuard} from './auth';
@@ -22,11 +22,16 @@ const persistedConfig=z.object({kind:probeKind,sourceId:z.string().uuid(),action
 const kinds=['PROBE_CHECK','PROBE_INSTALL','PROBE_STOP'];
 type Selection=z.infer<typeof probeDeploymentQuery>;
 type Source={kind:'ACCESS';source:AccessSource}|{kind:'NETWORK';source:NetworkSensor};
-type Readiness={state:'READY'|'WAITING'|'STALE'|'DISABLED'|'UNCONFIGURED'|'ERROR';message:string};
+type Readiness={state:'READY'|'WAITING'|'STALE'|'DISABLED'|'UNCONFIGURED'|'ERROR'|'STOPPED';message:string};
 type ReadinessSource={kind:'ACCESS';source:Pick<AccessSource,'enabled'|'tokenHash'|'issuedAssetTokenHash'|'version'|'health'|'lastReportAt'>}|{kind:'NETWORK';source:Pick<NetworkSensor,'enabled'|'tokenHash'|'lastReportedAt'|'lastMode'|'health'|'lastStatsAt'|'ruleFile'|'expectedRuleSha256'|'stats'>};
-export function probeReadiness(value:ReadinessSource,assetToken:string|null,now=Date.now()):Readiness{
+type LastProbeChange=Pick<AssetRemoteJob,'kind'|'status'|'updatedAt'>;
+export function probeReadiness(value:ReadinessSource,assetToken:string|null,now=Date.now(),lastChange:LastProbeChange|null=null):Readiness{
  const s=value.source;
  if(!s.enabled)return {state:'DISABLED',message:'来源已停用'};
+ if(lastChange?.kind==='PROBE_STOP'&&lastChange.status==='SUCCEEDED'){
+  const reported=value.kind==='ACCESS'?value.source.lastReportAt:value.source.lastReportedAt;
+  return reported&&reported.getTime()>lastChange.updatedAt.getTime()?{state:'ERROR',message:'停止完成后仍收到新的采集上报，请核对来源服务是否仍在运行'}:{state:'STOPPED',message:'采集已停止'};
+ }
  if(!s.tokenHash||!assetToken)return {state:'UNCONFIGURED',message:'来源或主机身份尚未配置'};
  if(value.kind==='ACCESS'){
   const source=value.source,state=accessCollectionState({...source,credentialValid:source.issuedAssetTokenHash===assetToken},now).state;
@@ -63,6 +68,9 @@ export function accessCheckResult(output:string){
  };
  const marker=output.trim(),result=Object.hasOwn(states,marker)?states[marker]:undefined;if(!result)throw new RemoteSshError('环境检查未返回有效结果，请核对实际状态',true);return result;
 }
+export function latestProbeJobQuery(selection:Selection,assetId:string,mutationsOnly=false):Prisma.AssetRemoteJobFindFirstArgs{
+ return {where:{assetId,kind:{in:mutationsOnly?['PROBE_INSTALL','PROBE_STOP']:kinds},AND:[{config:{path:['sourceId'],equals:selection.sourceId}},{config:{path:['kind'],equals:selection.kind}}]},orderBy:[{createdAt:'desc'},{id:'desc'}]};
+}
 function publicJob(job:AssetRemoteJob|null){if(!job)return null;const config=persistedConfig.parse(job.config);return {id:job.id,status:job.status,action:config.action,detail:job.detail,createdAt:job.createdAt,updatedAt:job.updatedAt};}
 export function assertProbeWriter(user:Pick<User,'role'|'disabled'|'dataScope'>){if(user.disabled||user.role!=='ADMIN')throw new ForbiddenException('探针远程操作需要有效管理员权限');assertGlobal(user);assertEvidence(user);}
 @Injectable()
@@ -79,8 +87,8 @@ export class ProbeDeploymentsService implements OnModuleInit,OnModuleDestroy{
   return value;
  }
  async latest(user:User,query:unknown){const selection=parse(probeDeploymentQuery,query),value=await this.source(user,selection),asset=await this.db.asset.findUniqueOrThrow({where:{id:value.source.assetId}});
-  const job=await this.db.assetRemoteJob.findFirst({where:{assetId:asset.id,kind:{in:kinds},AND:[{config:{path:['sourceId'],equals:selection.sourceId}},{config:{path:['kind'],equals:selection.kind}}]},orderBy:{createdAt:'desc'}});
-  return {job:publicJob(job),readiness:probeReadiness(value,asset.archivedAt?null:asset.tokenHash)};
+  const [job,lastChange]=await Promise.all([this.db.assetRemoteJob.findFirst(latestProbeJobQuery(selection,asset.id)),this.db.assetRemoteJob.findFirst(latestProbeJobQuery(selection,asset.id,true))]);
+  return {job:publicJob(job),readiness:probeReadiness(value,asset.archivedAt?null:asset.tokenHash,Date.now(),lastChange)};
  }
  async create(user:User,body:unknown){assertProbeWriter(user);const input=parse(probeDeploymentInput,body),value=await this.source(user,input),{access}=await this.remote.connection(user,value.source.assetId);
   if(input.action==='INSTALL'&&!value.source.enabled)throw new ConflictException('请先启用来源');

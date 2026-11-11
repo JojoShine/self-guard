@@ -4,7 +4,7 @@ import {api} from './api';
 import {ModuleSection,ModuleToolbar} from './ModuleSection';
 type Action='CHECK'|'INSTALL'|'STOP';
 type Job={id:string;status:'QUEUED'|'RUNNING'|'SUCCEEDED'|'FAILED'|'UNKNOWN';action:Action;detail:string;createdAt:string;updatedAt:string};
-type Deployment={job:Job|null;readiness:{state:'READY'|'WAITING'|'STALE'|'DISABLED'|'UNCONFIGURED'|'ERROR';message:string};interfaces?:string[]};
+type Deployment={job:Job|null;readiness:{state:'READY'|'WAITING'|'STALE'|'DISABLED'|'UNCONFIGURED'|'ERROR'|'STOPPED';message:string};interfaces?:string[]};
 export function probeJobLabel(status:Job['status'],action:Action){
  if(status==='QUEUED')return '任务排队中';
  if(status==='RUNNING')return action==='CHECK'?'正在检查环境':action==='STOP'?'正在停止服务':'正在安装并启动';
