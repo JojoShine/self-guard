@@ -4,7 +4,7 @@
 
 2026-11-01 用户确认：PostgreSQL 随栈部署；前端以版本化静态文件由宿主机 Nginx 提供；后端为镜像。2026-11-11用户确认移除不再需要的自研WAF运行组件；当前仅交付平台后端、静态前端、随栈PostgreSQL与备份。历史记录保留。
 
-- 业务/仓库：`self-guard` / 私有 `JojoShine/self-guard`。
+- 业务/仓库：`self-guard` / 公开 `JojoShine/self-guard`。
 - 目标：tbtparent，Ubuntu22.04 amd64；入口 `https://tbtparent.me/self-guard/`。
 - `DB_MODE=bundled`，`WEB_MODE=static`，`BASE_PATH=/self-guard`。
 - 前端资源 `/self-guard/assets/`，API `/self-guard/api/`，就绪 `/self-guard/healthz`；不占用域名根 `/api/`。
@@ -25,7 +25,7 @@ CI 对锁文件安装依赖，构建带 `runtime` 目标的后端镜像；前端
 - `release-manifest.json`：源码提交、版本、确认模式、BASE_PATH、后端/数据库准确镜像摘要、静态文件SHA-256。
 - `acceptance.json`：对应候选产物的隔离验收结果。
 
-GHCR镜像为私有，部署前核对具备读取当前仓库包权限的只读凭据；通过标准输入登录，勿把密码写进命令或提交到仓库。保留上一版本清单、配置及静态产物。
+源码仓库按用户2026-11-11要求为公开；GHCR制品访问权限独立核对，私有制品使用只读凭据；通过标准输入登录，勿把密码写进命令或提交到仓库。保留上一版本清单、配置及静态产物。
 
 ## 服务器首次准备
 
