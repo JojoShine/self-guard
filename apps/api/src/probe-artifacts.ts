@@ -45,7 +45,8 @@ printf 'TRANSFER_OK\\n'`;
 }
 export function accessProbeCommand(id:string,action:'INSTALL'|'STOP'|'CHECK'){
  const valid=sourceId.parse(id),unit='selfguard-access-'+valid,directory='/opt/selfguard-probes/'+valid;
- const command=action==='INSTALL'?`${quote(directory+'/selfguard-access-probe')} --install-config ${quote(directory+'/config.json')} >/dev/null 2>&1`:action==='STOP'?`for suffix in '' '-capture'; do
+ const command=action==='INSTALL'?`${quote(directory+'/selfguard-access-probe')} --install-config ${quote(directory+'/config.json')} >/dev/null 2>&1
+systemctl restart ${quote(unit+'.service')} ${quote(unit+'-capture.service')}`:action==='STOP'?`for suffix in '' '-capture'; do
  unit=${quote(unit)}"$suffix.service"
  if [ -f "/etc/systemd/system/$unit" ]; then systemctl disable --now "$unit"; fi
 done`:`present=0

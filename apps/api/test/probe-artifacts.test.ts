@@ -53,3 +53,14 @@ test('actual CHECK reports uninstalled and inactive services without command fai
   writeFileSync(join(f.root,'bin','id'),'#!/bin/sh\necho 1000\n',{mode:0o755});result=f.execute(accessProbeCommand(id,'CHECK'));assert.equal(result.status,0);assert.match(result.stdout,/PROBE_CHECK_ROOT_REQUIRED/);
  }finally{f.clean();}
 });
+
+test('actual INSTALL restarts only both source services after successful installer',()=>{
+ for(const exitCode of [0,1]){const f=fixture();try{
+  const directory=join(f.root,'opt','selfguard-probes',id);mkdirSync(directory,{recursive:true});
+  writeFileSync(join(directory,'selfguard-access-probe'),'#!/bin/sh\nprintf "INSTALLER\\n" >> "$TEST_CALLS"\nexit '+exitCode+'\n',{mode:0o755});
+  const result=f.execute(accessProbeCommand(id,'INSTALL'));
+  const calls=readFileSync(join(f.root,'calls'),'utf8').trim().split('\n');
+  if(exitCode===0){assert.equal(result.status,0,result.stderr);assert.deepEqual(calls,['INSTALLER','restart selfguard-access-'+id+'.service selfguard-access-'+id+'-capture.service']);assert.equal(result.stdout.trim(),'PROBE_COMMAND_OK');}
+  else{assert.notEqual(result.status,0);assert.deepEqual(calls,['INSTALLER']);assert.equal(result.stdout.includes('PROBE_COMMAND_OK'),false);}
+ }finally{f.clean();}}
+});
