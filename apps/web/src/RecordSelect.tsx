@@ -3,7 +3,7 @@ import {Alert,Button,Select,Typography} from 'antd';
 import {api} from './api';
 
 type Option={value:string;label:string;disabled?:boolean};
-type Props={resource:'assets'|'findings'|'tasks'|'sites'|'businesses';id?:string;ariaLabel?:string;value?:string|string[];onChange?:(value:any)=>void;mode?:'multiple';maxCount?:number;kind?:string;assetId?:string;allowArchived?:boolean;disabled?:boolean;status?:string;unbatched?:boolean;placeholder?:string};
+type Props={resource:'assets'|'findings'|'tasks'|'sites'|'businesses'|'database-instances';id?:string;ariaLabel?:string;value?:string|string[];onChange?:(value:any)=>void;mode?:'multiple';maxCount?:number;kind?:string;assetId?:string;allowArchived?:boolean;disabled?:boolean;status?:string;unbatched?:boolean;placeholder?:string};
 function option(row:any,allowArchived:boolean):Option{return {value:row.id,label:(row.name||row.hostname||row.title||'未命名记录')+(row.ip?' · '+row.ip:row.name&&row.hostname?' · '+row.hostname:'')+(row.archivedAt?' · 已归档':''),disabled:!allowArchived&&!!row.archivedAt}}
 export function RecordSelect({resource,id,ariaLabel,value,onChange,mode,maxCount,kind,assetId,status,unbatched,disabled,allowArchived=true,placeholder='输入名称查找并选择已有记录'}:Props){
  const [open,setOpen]=useState(false),[query,setQuery]=useState(''),[items,setItems]=useState<Option[]>([]),[selected,setSelected]=useState<Option[]>([]),[loading,setLoading]=useState(false),[error,setError]=useState(''),[page,setPage]=useState(0),[total,setTotal]=useState(0);

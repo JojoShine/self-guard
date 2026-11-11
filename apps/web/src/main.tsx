@@ -1,5 +1,21 @@
+import {VulnerabilityWorkspace} from './VulnerabilityWorkspace';
+import {HostResourceMonitoring} from './OperationalMonitoring';
+import {HostTrafficWorkspace} from './HostTrafficWorkspace';
+import {CoreModuleTools,RetiredModule,type AuditScope} from './CoreWorkspace';
+import {loadCoreOverview,type CoreOverview} from './Dashboard';
+import {names,resolveNavigation,securityPageScope,applySecurityPageQuery,retiredModule} from './navigation';
+import {TopNavigation} from './TopNavigation';
+import {DetailWorkspace,DetailPanel} from './DetailWorkspace';
+import {AssetDiscoveryPanel} from './AssetDiscoveryPanel';
+import {DatabaseInstancesPanel} from './DatabaseInstancesPanel';
+import {AccessObservationsPanel} from './AccessObservationsPanel';
+import {AccessSourcesPanel} from './AccessSourcesPanel';
+import {DataClassificationPanel} from './DataClassificationPanel';
+import {DatabaseAuditPanel} from './DatabaseAuditPanel';
+import {RuleSourceStatusPanel} from './RuleSourceStatusPanel';
 import {BusinessGroupCreateButton} from './BusinessGroupCreateButton';
 import {AssetCreateSshFields} from './AssetSshFields';
+import {NetworkSensorsPanel} from './NetworkSensorsPanel';
 import {HostWafSetup,HostNetworkPanel} from './HostNetworkPanel';
 import {AssetListActions} from './AssetListActions';
 import type {AssetActionMode} from './AssetListActions';
@@ -18,7 +34,7 @@ import {SecurityContext} from './SecurityContext';
 import {RecordWorkflowEditor} from './RecordWorkflowEditor';
 import {statusOptions} from './status-options';
 import {businessFieldHelp} from './business-fields';
-import {assetOSDisplay,assetOSFormValues,assetOSPayload} from './asset-os';
+import {isLinuxAsset,assetOSDisplay,assetOSFormValues,assetOSPayload} from './asset-os';
 import {AssetOperatingSystemFields} from './AssetOperatingSystemFields';
 import {WafRuleLibraryPanel} from './WafRuleLibraryPanel';
 import {AgentInstallationPanel} from './AgentInstallationPanel';
@@ -28,9 +44,9 @@ import {Brand} from "./Brand";
 import {DesignSystemPage} from "./DesignSystemPage";
 import {OperationGuide} from "./OperationGuide";
 import {themeConfig,applyThemeTokens} from "./theme";
-import {displayStatus,displaySource,formatTime} from "./presentation";
-import {AppstoreOutlined,ClusterOutlined,RadarChartOutlined,ControlOutlined,ToolOutlined,GlobalOutlined,BarChartOutlined,SettingOutlined,MenuFoldOutlined,MenuUnfoldOutlined,ReloadOutlined,FilterOutlined,DownOutlined,UpOutlined,BellOutlined,UploadOutlined,ReadOutlined} from '@ant-design/icons';
-import {QueryControls,defaultFilters,readLocation,queryParams} from "./QueryControls";
+import {displayStatus,displaySource,formatTime,securityDomainLabels} from "./presentation";
+import {SettingOutlined,ReloadOutlined,BellOutlined,UploadOutlined,ReadOutlined} from '@ant-design/icons';
+import {QueryControls,QueryFilterBar,defaultFilters,readLocation,queryParams} from "./QueryControls";
 import {DateField} from "./DateField";
 import {TemplatePanel,TemplateDetails} from "./TemplatePanel";
 import {RuleToolsPanel} from "./RuleToolsPanel";
@@ -50,7 +66,7 @@ import {RelatedTimeline} from "./RelatedTimeline";
 import {AdvisoryPanel} from "./AdvisoryPanel";
 import {GovernancePanel} from "./GovernancePanel";
 import {WorkflowTools,WorkflowBatchPanel} from "./WorkflowTools";
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { createRoot } from "react-dom/client";
 import {
   ConfigProvider,
@@ -59,7 +75,6 @@ import {
   Avatar,
   Popover,
   Layout,
-  Menu,
   Button,
   Upload,
   Input,
@@ -68,7 +83,6 @@ import {
   Table,
   Tag,
   Alert,
-  Drawer,
   Modal,
   Form,
   Switch,
@@ -124,79 +138,6 @@ const labels: Record<string, string> = {
   OBSERVE: "观察",
   BLOCK: "阻断",
 };
-const groups: [string, [string, string][]][] = [
-  [
-    "资产中心",
-    [
-      ["assets", "资产列表"],
-      ["business", "业务分组"],
-      ["enroll", "采集与接入"],
-    ],
-  ],
-  [
-    "安全中心",
-    [
-      ["findings", "全部发现"],
-      ["risks", "风险管理"],
-      ["alerts", "告警管理"],
-      ["incidents", "事件调查"],
-    ],
-  ],
-  [
-    "策略中心",
-    [
-      ["rules", "检测规则"],
-      ["baseline", "配置基线"],["data-security", "数据安全规则"],["rule-scope", "规则适用范围"],["rule-test", "规则样本验证"],
-      ["detection", "检测任务"],["scans", "扫描计划"],
-      ["sources", "漏洞数据源"],
-      ["correlation", "关联检测"],["telemetry", "遥测记录"],
-    ],
-  ],
-  [
-    "修复中心",
-    [
-      ["tasks", "修复任务"],
-      ["approvals", "待审批"],
-      ["templates", "修复模板"],
-      ["batches", "修复批次"],
-    ],
-  ],
-  [
-    "Web 防护",
-    [
-      ["sites", "站点管理"],["waf-events", "攻击记录"],
-      ["policies", "防护策略"],["waf-rules", "防护规则库"],
-      ["access", "访问日志"],
-      ["nodes", "节点状态"],
-      ["policy-test", "防护规则测试"],["certificates", "站点证书"],
-    ],
-  ],
-  [
-    "报告中心",
-    [
-      ["reports", "安全报告"],
-      ["trends", "趋势分析"],
-      ["exports", "导出记录"],
-    ],
-  ],
-  [
-    "系统管理",
-    [
-      ["users", "用户与权限"],["design-system","界面规范"],
-      ["credentials", "凭据管理"],
-      
-      ["audit", "操作审计"],
-      ["operations", "平台运维"],
-      ["rollouts", "Agent灰度升级"],["webhook", "外部通知"],["deliveries", "通知投递"],["backup", "定期备份"],
-        ["governance", "审批策略"],["retention", "数据保留"],["imports", "导入批次"],["notifications", "我的通知"],
-    ],
-  ],
-];
-const names = Object.fromEntries([
-  ["overview", "工作台"],
-  ["operation-guide", "操作指南"],
-  ...groups.flatMap((g) => g[1]),
-]);
 const mapping: Record<string, string> = {
   nodes: "waf-nodes",
   detection: "evaluations",
@@ -208,11 +149,10 @@ const mapping: Record<string, string> = {
   baseline: "rules",
   approvals: "tasks",
   policies: "sites",
-  business: "assets",
   enroll: "assets",
 };
 const inlineDetailModes=['edit','password','reject','verify','run','assign','status'];
-const modulePages=["scans","waf-rules","enroll","operation-guide","data-security","rule-scope","rule-test","certificates","rollouts","webhook","deliveries","backup","correlation","telemetry","policy-test","sources","batches","governance","retention","imports","notifications","templates","reports"];
+const modulePages=["network-hosts","network-sensors","data-access","data-access-sources","asset-candidates","database-instances","data-classification","database-audit","rule-sources-status","scans","waf-rules","enroll","operation-guide","data-security","rule-scope","rule-test","certificates","rollouts","webhook","deliveries","backup","correlation","telemetry","policy-test","sources","batches","governance","retention","imports","notifications","templates","reports"];
 const supported = [
   "waf-nodes",
   "evaluations",
@@ -233,9 +173,19 @@ function Application() {
   const session = useSession();
   const [page, setPage] = useState(readLocation().page);
   const [guideReturn,setGuideReturn] = useState('overview');
+  const [auditScope,setAuditScope]=useState<AuditScope>();
+  const updateAuditScope=useCallback((scope:AuditScope)=>{
+    setAuditScope(scope);
+    const [key,encoded='']=location.hash.slice(1).split('?');
+    if(!['data-access','database-audit','data-access-sources'].includes(key))return;
+    const query=new URLSearchParams(encoded);
+    for(const name of ['assetId','instanceId','sourceId'] as const){const next=scope[name];if(query.get(name)!==(next||null))query.delete('recordId');if(next)query.set(name,next);else query.delete(name)}
+    window.history.replaceState(null,'',location.pathname+location.search+'#'+key+(query.size?'?'+query:''));
+  },[]);
+
   const [rows, setRows] = useState<Row[]>([]);
   const [total, setTotal] = useState(0);
-  const [overview, setOverview] = useState<Row>();
+  const [overview, setOverview] = useState<CoreOverview>();
   const [ops, setOps] = useState<Row>();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -247,6 +197,8 @@ function Application() {
   const [extraFilters,setExtraFilters]=useState(readLocation().extra);
   const [batchResults,setBatchResults]=useState<{id:string;ok:boolean;message:string}[]>([]);
   const [detail, setDetail] = useState<Row>();
+  const [assetDetailTab,setAssetDetailTab]=useState("overview");
+  useEffect(()=>setAssetDetailTab(page==='network-hosts'?"network":"overview"),[detail?.id]);
   const [structuredField,setStructuredField]=useState<{title:string;value:unknown}>();
   const [modal, setModal] = useState("");
   const [listEditing,setListEditing]=useState(false);
@@ -256,8 +208,10 @@ function Application() {
   const selectedTemplate = Form.useWatch("template", form);
   const selectedAsset = Form.useWatch("assetId", form);
   const selectedRuleKind = Form.useWatch("kind", form);
-  const resource = mapping[page] || page;
-  const statusValues=resource==='tasks'?['PENDING','APPROVED','RUNNING','VERIFYING','SUCCEEDED','FAILED','UNKNOWN','REJECTED','CANCELLED','EXPIRED','ROLLED_BACK']:resource==='incidents'?['OPEN','IN_PROGRESS','VERIFYING','CLOSED']:['findings','discoveries'].includes(resource)?page==='alerts'?['OPEN','IN_PROGRESS','RESOLVED','FALSE_POSITIVE']:page==='risks'?['OPEN','CONFIRMED','IN_PROGRESS','VERIFYING','CLOSED','ACCEPTED','FALSE_POSITIVE']:['OPEN','CONFIRMED','IN_PROGRESS','VERIFYING','CLOSED','RESOLVED','ACCEPTED','FALSE_POSITIVE']:[];
+  const securityScope=securityPageScope(page);
+  const findingKind=securityScope?.kind||(page==='risks'?'RISK':page==='alerts'?'ALERT':undefined);
+  const resource = securityScope?.resource || (page==='network-hosts'?'assets':mapping[page] || page);
+  const statusValues=resource==='tasks'?['PENDING','APPROVED','RUNNING','VERIFYING','SUCCEEDED','FAILED','UNKNOWN','REJECTED','CANCELLED','EXPIRED','ROLLED_BACK']:(resource==='incidents'||findingKind==='INCIDENT')?['OPEN','IN_PROGRESS','VERIFYING','CLOSED']:['findings','discoveries'].includes(resource)?findingKind==='ALERT'?['OPEN','IN_PROGRESS','VERIFYING','RESOLVED','FALSE_POSITIVE']:findingKind==='RISK'?['OPEN','CONFIRMED','IN_PROGRESS','VERIFYING','CLOSED','ACCEPTED','FALSE_POSITIVE']:['OPEN','CONFIRMED','IN_PROGRESS','VERIFYING','CLOSED','RESOLVED','ACCEPTED','FALSE_POSITIVE']:[];
   const [user, setUser] = useState<Row>();
   const [detailResource, setDetailResource] = useState("");
   const [comments, setComments] = useState<Row[]>([]);
@@ -270,7 +224,6 @@ function Application() {
   const isAdmin = user?.role === "ADMIN";
   const saved = useViews();
   const [density, setDensity] = useState<"small" | "middle" | "large">("middle");
-  const [navCollapsed,setNavCollapsed]=useState(false);
   const [advancedOpen,setAdvancedOpen]=useState(false);
   const pageRef=useRef(page);
   const advancedCount=Object.entries(extraFilters).filter(([key,value])=>value&&value!==(defaultFilters as any)[key]).length;
@@ -283,20 +236,13 @@ function Application() {
   const detailRequestVersion = useRef(0);
   const renderedDetailVersion = detailRequestVersion.current;
   const inlineFormTarget = useRef<HTMLDivElement>(null);
+  const pendingEditor=useRef<{page:string;values:Record<string,unknown>}>();
   async function bulkFindings(mode:"read"|"assign",owner?:string){
     setBusy(true);setBatchError("");const results:{id:string;ok:boolean;message:string}[]=[];
     try{for(const id of selected){try{if(mode==="read")await api('/workflows/findings/'+id+'/triage',{read:true},'PATCH');else await api('/findings/'+id,{owner},'PATCH');results.push({id:String(id),ok:true,message:'已保存'});}catch(e){results.push({id:String(id),ok:false,message:(e as Error).message});}}setSelected([]);await refresh();setBatchResults(results);if(results.every(row=>row.ok))message.success('所选发现已更新');}finally{setBusy(false);}
   }
-  const activeGroup = groups.find(([, items]) =>
-    items.some(([key]) => key === page),
-  )?.[0];
-  const [openGroups, setOpenGroups] = useState<string[]>(
-    activeGroup ? [activeGroup] : [],
-  );
-  useEffect(
-    () => setOpenGroups(previous=>activeGroup&&!previous.includes(activeGroup)?[...previous,activeGroup]:previous),
-    [activeGroup],
-  );
+  const activeGroup=resolveNavigation(page).group?.[0];
+  const activeStrategySection=resolveNavigation(page).section;
   useEffect(() => {
     if (session.token)
       api("/auth/me")
@@ -316,7 +262,7 @@ function Application() {
     }
   }, [session.token]);
   function openAssetAction(record:Row,mode:AssetActionMode){
-    const version=++detailRequestVersion.current;setDetail(undefined);setStructuredField(undefined);setModal("");setListEditing(false);setAssetAction({record,mode,version});
+    const version=detail?.id===record.id?detailRequestVersion.current:++detailRequestVersion.current;setStructuredField(undefined);setModal("");setListEditing(false);setAssetAction({record,mode,version});
   }
   async function showDetail(r: Row, override?: string) {
     setAssetAction(undefined);setListEditing(false);
@@ -340,6 +286,7 @@ function Application() {
             page === "reports"
           ? "findings"
           : resource);
+    if(["tasks","incidents","sites"].includes(target)){message.info("该模块已退出本期功能，历史记录保留");return;}
     setDetailResource(target);
     setAttachments([]);
     setVersions([]);
@@ -412,9 +359,12 @@ function Application() {
       const next=readLocation();
       if(pageRef.current!==next.page){requestVersion.current++;setRows([]);setTotal(0);setLoading(true);setAdvancedOpen(false);pageRef.current=next.page;}
       detailRequestVersion.current++;
+      setAuditScope(undefined);
       setPage(next.page);setQ(next.q);setSev(next.severity);setStatus(next.status);setNumber(next.number);setPageSize(next.pageSize);setExtraFilters(next.extra);
       setBatchResults([]);
-      setModal(current=>inlineDetailModes.includes(current)?"":current);
+      const editor=pendingEditor.current;pendingEditor.current=undefined;
+      setModal(editor?.page===next.page?"create":"");
+      if(editor?.page===next.page){form.resetFields();form.setFieldsValue(editor.values)}
       setDetail(undefined);setAssetAction(undefined);setListEditing(false);
       setStructuredField(undefined);
       setHidden([]);
@@ -426,10 +376,10 @@ function Application() {
     addEventListener("hashchange", handler);
     return () => removeEventListener("hashchange", handler);
   }, []);
-  useEffect(()=>{if(!session.token)return;const query=queryParams(q,sev,status,number,extraFilters,pageSize);if(page==='enroll'){const tab=new URLSearchParams(location.hash.split('?')[1]||'').get('tab');if(tab&&['connection','batch','installations','releases'].includes(tab))query.set('tab',tab)}window.history.replaceState(null,"",location.pathname+location.search+"#"+page+"?"+query.toString());},[session.token,page,q,sev,status,number,extraFilters,pageSize]);
+  useEffect(()=>{if(!session.token||['network-hosts','network-sensors'].includes(page))return;const query=applySecurityPageQuery(page,queryParams(q,sev,status,number,extraFilters,pageSize));if(page==='scans'){const view=new URLSearchParams(location.hash.split('?')[1]||'').get('view');if(view&&['overview','inventory','active','sources','settings'].includes(view))query.set('view',view)}if(page==='enroll'){const tab=new URLSearchParams(location.hash.split('?')[1]||'').get('tab');if(tab&&['connection','batch','installations','releases'].includes(tab))query.set('tab',tab)}if(page==='data-access'||page==='data-access-sources'||page==='database-audit'||page==='data-classification'){const params=new URLSearchParams(location.hash.split('?')[1]||'');for(const key of ['sourceId','assetId','instanceId','sessionId','recordId']){const value=params.get(key);if(value)query.set(key,value)}}window.history.replaceState(null,"",location.pathname+location.search+"#"+page+"?"+query.toString());},[session.token,page,q,sev,status,number,extraFilters,pageSize]);
   async function refresh() {
     if (pageRef.current !== page) return;
-    if(modulePages.includes(page)){setLoading(false);return;}
+    if(modulePages.includes(page)||retiredModule(page)){setLoading(false);return;}
     const version = ++requestVersion.current;
     const token = session.token;
     const current = () =>
@@ -442,10 +392,10 @@ function Application() {
         const data = await api("/operations/" + opsRoutes[page]);
         if (current()) setOps(data);
       } else if (page === "overview" || page === "reports") {
-        const data = await api("/overview");
+        const data = await loadCoreOverview(api);
         if (current()) setOverview(data);
       } else if (supported.includes(resource)) {
-        const query = queryParams(q,sev,status,number,extraFilters,pageSize);
+        const query = applySecurityPageQuery(page,queryParams(q,sev,status,number,extraFilters,pageSize));
         if (sev) query.set("severity", sev);
         if (status) query.set("status", status);
         if (page === "risks" || page === "alerts")
@@ -586,7 +536,7 @@ function Application() {
         delete data.expectedValue;
         delete data.value;
       }
-      if (editorResource === "assets") {Object.assign(data,assetOSPayload(values));delete data.osChoice;delete data.configureSsh;if(!values.configureSsh||data.os!=='linux')delete data.sshAccess;}
+      if (editorResource === "assets") {Object.assign(data,assetOSPayload(values));delete data.osChoice;delete data.configureSsh;if(!values.configureSsh||!isLinuxAsset(data))delete data.sshAccess;}
       if (editorResource === "assets")
         data.tags = (data.tags || "")
           .split(",")
@@ -616,7 +566,7 @@ function Application() {
       extra={businessFieldHelp(name)}
       rules={[{ required, message: `请填写${label}` }]}
     >
-      {name==='business'?<BusinessSelect onBusyChange={setBusy} canCreate={editorResource!=='assets'&&!!user&&['ADMIN','ANALYST'].includes(user.role)&&(user.role==='ADMIN'||user.dataScope?.restricted!==true)}/>:name==='assetId'?<RecordSelect resource="assets" allowArchived={false}/>:name==='findingId'?<RecordSelect resource="findings" kind="RISK" assetId={selectedAsset}/>:name==='findingIds'?<RecordSelect resource="findings" mode="multiple" maxCount={100}/>:textarea ? <Input.TextArea rows={4} /> : ['dueAt','expiresAt'].includes(name) ? <DateField showTime/> : <Input />}
+      {name==='business'?<BusinessSelect onBusyChange={setBusy} canCreate={!!user&&['ADMIN','ANALYST'].includes(user.role)&&(user.role==='ADMIN'||user.dataScope?.restricted!==true)}/>:name==='assetId'?<RecordSelect resource="assets" allowArchived={false}/>:name==='findingId'?<RecordSelect resource="findings" kind="RISK" assetId={selectedAsset}/>:name==='findingIds'?<RecordSelect resource="findings" mode="multiple" maxCount={100}/>:textarea ? <Input.TextArea rows={4} /> : ['dueAt','expiresAt'].includes(name) ? <DateField showTime/> : <Input />}
     </Form.Item>
   );
   const select = (name: string, label: string, values: string[]) => (
@@ -633,7 +583,7 @@ function Application() {
   if (page==='operation-guide')return <OperationGuide onReturn={()=>navigate(guideReturn)}/>;
   const baseColumns = [
     {
-      title: resource==="waf-events"?"攻击记录":resource==="waf-access"?"访问记录":"名称 / 标题",
+      title: securityScope?"发现了什么":resource==="waf-events"?"攻击记录":resource==="waf-access"?"访问记录":"名称 / 标题",
       key: "title",
       render: (_: unknown, r: Row) => (
         <Button className="record-title-link" type="link" onClick={() => void showDetail(r)}>
@@ -780,40 +730,16 @@ function Application() {
   };
   const columns = [
     baseColumns[0],
-    ...(extra[resource] || baseColumns.slice(1, 5)),
+    ...(['findings','discoveries'].includes(resource)&&!securityScope?[{title:'安全领域',key:'securityDomain',render:(_:unknown,row:Row)=><Space wrap size={4}>{(row.securityDomains||[row.securityDomain||'UNCLASSIFIED']).map((domain:string)=><Tag key={domain} color={domain==='NETWORK'?'blue':domain==='DATA'?'cyan':undefined}>{securityDomainLabels[domain]||'待分域'}</Tag>)}</Space>}]:[]),
+    ...(securityScope?.kind?[baseColumns[2],baseColumns[3],{...baseColumns[4],title:'检测来源'}]:(extra[resource] || baseColumns.slice(1, 5))),
     baseColumns[5],
     ...(resource==='assets'&&user&&(['ADMIN','ANALYST'].includes(user.role)||user.dataScope?.canReadEvidence!==false)?[{title:'操作',key:'actions',width:280,render:(_:unknown,row:Row)=><AssetListActions record={row} role={user.role} evidenceAllowed={user.role==='ADMIN'||user.dataScope?.canReadEvidence!==false} onEdit={()=>editDetail(row,'assets')} onOpen={mode=>openAssetAction(row,mode)}/>}]:['rules','sites','users'].includes(resource)&&(resource==='rules'?['ADMIN','ANALYST'].includes(user?.role||''):isAdmin)?[{title:'操作',key:'actions',width:120,render:(_:unknown,row:Row)=><Button onClick={()=>editDetail(row,resource)}>编辑配置</Button>}]:[]),
   ];
   return (
-    <Layout style={{ minHeight: "100dvh" }}>
-      <Layout.Sider className="sidebar" theme="dark" width={232} collapsedWidth={72} collapsed={navCollapsed} breakpoint="lg" onBreakpoint={setNavCollapsed}>
-        <Button type="text" className="brand-home" aria-label="Self Guard 返回工作台" onClick={()=>navigate('overview')}><Brand compact={navCollapsed} light/></Button>
-        <Menu
-          mode="inline"
-          theme="dark"
-          aria-label="主导航"
-          selectedKeys={[page]}
-          openKeys={navCollapsed?undefined:openGroups}
-          onOpenChange={keys=>{if(!navCollapsed)setOpenGroups(keys)}}
-          onClick={({ key }) => navigate(key)}
-          items={[
-            { key: "overview", label: "工作台", icon:<AppstoreOutlined/> },
-            ...groups.map(([name, items]) => ({
-              key: name,
-              label: name,
-              icon: ({'资产中心':<ClusterOutlined/>,'安全中心':<RadarChartOutlined/>,'策略中心':<ControlOutlined/>,'修复中心':<ToolOutlined/>,'Web 防护':<GlobalOutlined/>,'报告中心':<BarChartOutlined/>,'系统管理':<SettingOutlined/>} as Record<string,React.ReactNode>)[name],
-              children: items.map(([key, label]) => ({ key, label })),
-            })),
-          ]}
-        />
-        <div className="sidebar-footer"><Tooltip title={navCollapsed?'展开导航':'收起导航'} placement="right"><Button type="text" aria-label={navCollapsed?'展开导航':'收起导航'} icon={navCollapsed?<MenuUnfoldOutlined/>:<MenuFoldOutlined/>} onClick={()=>setNavCollapsed(!navCollapsed)}/></Tooltip>{!navCollapsed&&<span>Self Guard · 安全运营</span>}</div>
-      </Layout.Sider>
-      <Layout>
-        <Layout.Header className="top">
-          <Breadcrumb items={[{title:'安全运营'},{title:activeGroup||names[page]||'工作台'},...(activeGroup?[{title:names[page]}]:[])]}/>
+    <Layout className="app-shell" style={{ minHeight: "100dvh" }}>
+      <TopNavigation page={page} onNavigate={navigate}>
           <Space size={16} className="top-actions">
             <Button type="text" className="guide-entry" aria-label="操作指南" icon={<ReadOutlined/>} onClick={()=>{setGuideReturn(location.hash.slice(1)||page);navigate('operation-guide')}}>操作指南</Button>
-            <Tooltip title="我的通知"><Button type="text" aria-label="我的通知" icon={<BellOutlined/>} onClick={()=>navigate('notifications')}/></Tooltip>
             <Avatar size={30} className="account-avatar">{user?.name?.slice(0,1)||'用'}</Avatar>
             <span className="account-name">
               {user?.name} · {labels[user?.role] || user?.role}
@@ -831,17 +757,20 @@ function Application() {
               退出登录
             </Button>
           </Space>
-        </Layout.Header>
-        <Layout.Content className="page">
+      </TopNavigation>
+      <Layout.Content className="page">
+        <DetailWorkspace key={page} title={names[page]||'工作台'}>
+          <div className="page-breadcrumb"><Breadcrumb items={[{title:'安全运营'},{title:activeGroup||names[page]||'工作台'},...(activeStrategySection?[{title:activeStrategySection.label}]:[]),...(activeGroup&&activeGroup!==names[page]?[{title:names[page]}]:[])]}/></div>
           <div className="heading">
             <div>
               <h1>{names[page] || "工作台"}</h1>
-              <span className="page-description">{({overview:'关注风险变化，推进每一项待办。',findings:'统一查看漏洞、主机与 Web 防护发现，按优先级开展处置。',risks:'确认影响范围、分派负责人，并跟踪修复与验证结果。',alerts:'研判主机与 Web 防护告警，关联风险并组织事件调查。',incidents:'汇总相关发现、影响资产与处置任务，组织调查并记录结论。','waf-events':'查看 HTTP/HTTPS 请求的 WAF 命中与处置记录；攻击特征命中不等于已确认应用漏洞。',rules:'管理已创建的主机、软件、日志与配置检测规则；WAF规则在Web防护中维护。',baseline:'查看主机与数据库配置检查规则，跟踪实际状态与基线要求的偏差。','data-security':'按基础模板创建数据库行为和配置检测规则，结果进入风险管理或告警管理。','rule-scope':'设置检测规则适用的资产、业务、标签与基线豁免。','rule-test':'提供离线样本核对检测逻辑，不修改适用范围，也不发起真实扫描。',assets:'掌握主机清单、业务归属与采集状态。',tasks:'跟踪审批、执行、独立复验与回滚的完整过程。',approvals:'核对目标、变更内容与恢复方案后进行审批。',sites:'管理受保护站点、上游服务与当前防护策略。','design-system':'一套共同的视觉与交互规则，贯穿平台的每个页面。'} as Record<string,string>)[page]||`查看和管理${names[page]||'平台记录'}。`}</span>
+              <span className="page-description">{retiredModule(page)?'请使用下方可用模块，原有历史记录保留。':({'network-sensors':'查看协议访问记录；入侵检测命中统一进入安全告警，接入与健康在采集配置中查看。',scans:'管理CVE与在野漏洞检测依据，核对覆盖后发起扫描并跟进修复复查。',overview:'先确认采集，再查看问题，按需进入证据。','network-findings':'查看网络安全发现，包含主机、漏洞与 Web 防护相关风险。','network-risks':'查看漏洞及配置检查结果，核对命中条件和检测时间。','network-alerts':'查看告警内容、实际连接和判断依据。','network-incidents':'查看包含网络安全发现的调查；跨域调查可同时在两个领域查看。','network-hosts':'选择主机查看连接与流量；服务端口和采集配置按需查看。','data-findings':'查看数据安全发现，结合实例、分类分级与访问审计研判。','data-risks':'查看数据安全风险及对应分类和审计依据。','data-alerts':'查看数据准入与行为告警；实际采集覆盖以实例状态为准。','data-incidents':'查看包含数据安全发现的调查；跨域调查保留统一记录。',findings:'按领域筛选安全记录，核对受影响对象和实际检测依据。',risks:'核对影响范围、检测条件与风险依据。',alerts:'查看异常记录、来源和检测依据。',incidents:'汇总相关发现、影响资产与处置任务，组织调查并记录结论。','waf-events':'查看 HTTP/HTTPS 请求的 WAF 命中与处置记录；攻击特征命中不等于已确认应用漏洞。',rules:'配置主机、软件、日志与基线检查规则；启用前核对适用范围和检查依据。',baseline:'查看主机与数据库配置检查规则，跟踪实际状态与基线要求的偏差。','data-security':'按基础模板创建数据库行为和配置检测规则，结果进入风险管理或告警管理。','rule-scope':'设置检测规则适用的资产、业务、标签与基线豁免。','rule-test':'提供离线样本核对检测逻辑，不修改适用范围，也不发起真实扫描。',business:'按业务归类资产；点击分组查看对应主机，创建分组后可在资产表单中选择。',assets:'掌握主机清单、业务归属与采集状态。',tasks:'跟踪审批、执行、独立复验与回滚的完整过程。',approvals:'核对目标、变更内容与恢复方案后进行审批。',sites:'管理受保护站点、上游服务与当前防护策略。','design-system':'一套共同的视觉与交互规则，贯穿平台的每个页面。'} as Record<string,string>)[page]||`查看和管理${names[page]||'平台记录'}。`}</span>
             </div>
-            <Space>
+            {!retiredModule(page)&&<Space>
+              {page==='business'&&!!user&&['ADMIN','ANALYST'].includes(user.role)&&(user.role==='ADMIN'||user.dataScope?.restricted!==true)?<BusinessGroupCreateButton onCreated={()=>void refresh()}/>:undefined}
               {page!=="design-system"&&!modulePages.includes(page)&&<Button icon={<ReloadOutlined/>} onClick={() => void refresh()}>刷新</Button>}
               {page==="sites"&&isAdmin&&<HostWafSetup/>}
-              {!modulePages.includes(page)&&['assets','findings','incidents','rules','tasks','sites','discoveries'].includes(resource)&&<Button onClick={async()=>{try{const query=queryParams(q,sev,status,number,extraFilters,pageSize);query.set('resource',resource);if(page==='risks'||page==='alerts')query.set('kind',page==='risks'?'RISK':'ALERT');if(page==='approvals')query.set('status','PENDING');if(page==='baseline')query.set('kind','BASELINE');const result=await api('/workflows/export?'+query);const url=URL.createObjectURL(new Blob([JSON.stringify(result,null,2)],{type:'application/json'}));const a=document.createElement('a');a.href=url;a.download='selfguard-'+resource+'.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);if(result.truncated)message.warning('已导出前10000条，文件中已标记截断');}catch(e){setError((e as Error).message)}}}>导出筛选结果</Button>}
+              {!modulePages.includes(page)&&['assets','findings','incidents','rules','tasks','sites','discoveries'].includes(resource)&&<Button onClick={async()=>{try{const query=applySecurityPageQuery(page,queryParams(q,sev,status,number,extraFilters,pageSize));query.set('resource',resource);if(page==='risks'||page==='alerts')query.set('kind',page==='risks'?'RISK':'ALERT');if(page==='approvals')query.set('status','PENDING');if(page==='baseline')query.set('kind','BASELINE');const result=await api('/workflows/export?'+query);const url=URL.createObjectURL(new Blob([JSON.stringify(result,null,2)],{type:'application/json'}));const a=document.createElement('a');a.href=url;a.download='selfguard-'+resource+'.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);if(result.truncated)message.warning('已导出前10000条，文件中已标记截断');}catch(e){setError((e as Error).message)}}}>导出筛选结果</Button>}
               {!modulePages.includes(page)&&(["assets", "incidents", "rules", "tasks", "sites"].includes(
                 resource,
               ) ||
@@ -850,7 +779,7 @@ function Application() {
                   {({assets:'添加资产',incidents:'创建调查',rules:'创建规则',tasks:'创建任务',sites:'添加站点',users:'添加用户'} as Record<string,string>)[resource]||'新建'}
                 </Button>
               )}
-              {!modulePages.includes(page)&&["findings", "discoveries"].includes(resource) && (
+              {!securityScope&&!modulePages.includes(page)&&["findings", "discoveries"].includes(resource) && (
                 <Button
                   type="primary"
                   onClick={() => {
@@ -861,7 +790,7 @@ function Application() {
                   导入发现
                 </Button>
               )}
-            </Space>
+            </Space>}
           </div>
           {error && (
             <Alert
@@ -873,10 +802,11 @@ function Application() {
               onClose={() => setError("")}
             />
           )}
-          <div className={modulePages.includes(page)?"module-page":undefined}>
-          {page==="waf-rules"?<WafRuleLibraryPanel/>:page==="enroll"?<AgentInstallationPanel/>:page==="design-system"?<DesignSystemPage/>:page==="data-security"?<DatabaseRulesPage/>:["rule-scope","rule-test"].includes(page)?<RuleToolsPanel key={page} mode={page==="rule-scope"?"scope":"test"}/>: page==="certificates"?<CertificatePanel/>:["rollouts","webhook","deliveries","backup"].includes(page)?<CompletionPanel key={page} section={page}/>: ["correlation","telemetry","policy-test"].includes(page)?<CorrelationPanel key={page} mode={page==="correlation"?"rules":page as "telemetry"|"policy-test"}/>:page==="sources"?<AdvisoryPanel/>:page==="scans"?<ScanPanel/>:page==="batches"?<WorkflowBatchPanel/>:["governance","retention","imports","notifications"].includes(page)?<div className="module-stack"><GovernancePanel key={page} section={page}/>{page==="retention"&&<StoragePanel/>}</div>:opsRoutes[page] ? (
+          <div className="module-page">
+          {retiredModule(page)?<RetiredModule page={page}/>:<><CoreModuleTools page={page} scope={auditScope}/></>}
+          {!retiredModule(page)&&(page==="network-hosts"?<HostTrafficWorkspace canManage={!!user&&['ADMIN','OPERATOR'].includes(user.role)} onAsset={id=>void showDetail({id},'assets')} onConfigure={record=>openAssetAction(record,'capture')}/>:page==="network-sensors"?<NetworkSensorsPanel canManage={!!user&&['ADMIN','OPERATOR'].includes(user.role)} onAsset={id=>void showDetail({id},'assets')} onFinding={id=>void showDetail({id},'findings')}/>:page==="data-access"?<AccessObservationsPanel onScopeChange={updateAuditScope}/>:page==="data-access-sources"?<AccessSourcesPanel onScopeChange={updateAuditScope}/>:page==="asset-candidates"?<AssetDiscoveryPanel/>:page==="database-instances"?<DatabaseInstancesPanel/>:page==="data-classification"?<DataClassificationPanel/>:page==="database-audit"?<DatabaseAuditPanel onScopeChange={updateAuditScope}/>:page==="rule-sources-status"?<RuleSourceStatusPanel/>:page==="waf-rules"?<WafRuleLibraryPanel/>:page==="enroll"?<AgentInstallationPanel/>:page==="design-system"?<DesignSystemPage/>:page==="data-security"?<DatabaseRulesPage/>:["rule-scope","rule-test"].includes(page)?<RuleToolsPanel key={page} mode={page==="rule-scope"?"scope":"test"}/>: page==="certificates"?<CertificatePanel/>:["rollouts","webhook","deliveries","backup"].includes(page)?<CompletionPanel onOpenFinding={id=>void showDetail({id},"findings")} key={page} section={page}/>: ["correlation","telemetry","policy-test"].includes(page)?<CorrelationPanel key={page} mode={page==="correlation"?"rules":page as "telemetry"|"policy-test"}/>:page==="sources"?<AdvisoryPanel/>:page==="scans"?<VulnerabilityWorkspace/>:page==="batches"?<WorkflowBatchPanel/>:["governance","retention","imports","notifications"].includes(page)?<div className="module-stack"><GovernancePanel onOpenFinding={id=>void showDetail({id},"findings")} key={page} section={page}/>{page==="retention"&&<StoragePanel/>}</div>:opsRoutes[page] ? (
             <Spin spinning={loading}>
-              <ModuleSection extra={page==='business'&&!!user&&['ADMIN','ANALYST'].includes(user.role)&&!user.dataScope?.restricted?<BusinessGroupCreateButton onCreated={()=>void refresh()}/>:undefined} title={({business:'业务分组概览',trends:'发现与处置趋势',exports:'历史导出记录',credentials:'组件凭据状态',operations:'平台运行状态'} as Record<string,string>)[page]||names[page]}>
+              <ModuleSection title={({business:'业务分组概览',trends:'发现与处置趋势',exports:'历史导出记录',credentials:'组件凭据状态',operations:'平台运行状态'} as Record<string,string>)[page]||names[page]}>
                 {ops ? (
                   <>
                     {page === "business" && (
@@ -886,7 +816,7 @@ function Application() {
                         rowKey="business"
                         dataSource={ops.items}
                         columns={[
-                          textColumn("业务分组", "business"),
+                          {title:"业务分组",dataIndex:"business",render:(value:string)=>value==='未分组'?<span>{value}</span>:<Button type="link" href={'#assets?business='+encodeURIComponent(value)}>{value}</Button>},
                           textColumn("全部资产数量", "assetCount"),
                         ]}
                         pagination={paginationDefaults}
@@ -1055,7 +985,7 @@ function Application() {
           ) : page === "reports" ? <ReportPanel /> : page === "overview" ? (
             <Spin spinning={loading}>
               {overview ? (
-                <Dashboard overview={overview} onOpen={(r,target)=>navigate(target==='tasks'?'tasks':target==='incidents'?'incidents':r.kind==='ALERT'?'alerts':r.kind==='RISK'?'risks':'findings')} onMetric={group=>navigate(dashboardDestination(group))}/>
+                <Dashboard overview={overview} onOpen={r=>void showDetail(r,'findings')} onMetric={group=>navigate(dashboardDestination(group))}/>
               ) : (
                 !loading && <Empty description="尚未取得概览数据，请重试" />
               )}
@@ -1076,7 +1006,7 @@ function Application() {
                 </p>
               )}
               <div className="list-controls">
-              <div className="query-primary">
+              <QueryFilterBar open={advancedOpen} onOpenChange={setAdvancedOpen} activeCount={advancedCount} description="按创建日期、业务、负责人或资产组合筛选" onClear={()=>{setQ('');setSev(undefined);setStatus(undefined);setExtraFilters(defaultFilters);setNumber(1)}} primary={<>
                 <Input.Search
                   style={{ width: 280 }}
                   placeholder="搜索标题、名称或主机"
@@ -1104,22 +1034,10 @@ function Application() {
                   }))}
                 />)}
                 {statusValues.length>0&&<Select allowClear showSearch aria-label="处置状态筛选" placeholder="处置状态" style={{width:150}} value={status} onChange={value=>{setStatus(value);setNumber(1)}} options={[...new Set([...statusValues,...(status?[status]:[])])].map(value=>({value,label:displayStatus(value)}))}/>}
-                <Button className="advanced-trigger" icon={<FilterOutlined/>} aria-expanded={advancedOpen} onClick={()=>setAdvancedOpen(!advancedOpen)}>高级筛选{advancedCount>0?` · ${advancedCount}`:''}{advancedOpen?<UpOutlined/>:<DownOutlined/>}</Button>
-
-              </div>
-              {advancedOpen&&<div className="advanced-query"><div className="advanced-query-header"><span>按创建日期、业务、负责人或资产组合筛选</span>                <Button
-                  onClick={() => {
-                    setQ("");
-                    setSev(undefined);
-                    setStatus(undefined);setExtraFilters(defaultFilters);
-                    setNumber(1);
-                  }}
-                >
-                  清空筛选
-                </Button></div><QueryControls resource={resource} value={extraFilters} onChange={value=>{setExtraFilters(value);setNumber(1);}}/></div>}
+</>}><div className="module-field-wide"><QueryControls resource={resource} lockedDomain={securityScope?.domain} value={extraFilters} onChange={value=>{setExtraFilters(value);setNumber(1)}}/></div></QueryFilterBar>
               {(q||sev||status||advancedCount>0)&&<div className="active-filters"><span>已应用</span>{q&&<Tag closable onClose={()=>{setQ('');setNumber(1)}}>搜索：{q}</Tag>}{sev&&<Tag closable onClose={()=>{setSev(undefined);setNumber(1)}}>{labels[sev]}</Tag>}{status&&<Tag closable onClose={()=>{setStatus(undefined);setNumber(1)}}>{displayStatus(status)}</Tag>}{extraFilters.business&&<Tag>业务：{extraFilters.business}</Tag>}{otherAdvancedCount>0&&<span>其他条件 {otherAdvancedCount} 项</span>}<Button type="link" size="small" onClick={()=>{setQ('');setSev(undefined);setStatus(undefined);setExtraFilters(defaultFilters);setNumber(1)}}>清空条件</Button></div>}
               </div>
-              <div className="table-toolbar"><span className="result-count">共<strong>{total}</strong>条记录</span><div className="table-tools">
+              <div className="table-toolbar"><span className="result-count">共<strong>{total}</strong>条记录</span><Popover trigger="click" placement="bottomRight" title="列表设置" content={<div className="table-display-options">
                 <Select
                   placeholder="已保存视图"
                   aria-label="已保存视图"
@@ -1146,7 +1064,7 @@ function Application() {
                 >
                   保存当前视图
                 </Button>
-                <Popover trigger="click" placement="bottomRight" title="显示设置" content={<div className="table-display-options"><label>表格密度<Select
+                <div className="table-display-options"><label>表格密度<Select
                   aria-label="表格密度"
                   value={density}
                   onChange={setDensity}
@@ -1167,9 +1085,9 @@ function Application() {
                     .slice(1)
                     .map((c) => ({ value: c.title, label: c.title }))}
                 /></label>
-</div>}><Button icon={<SettingOutlined/>}>显示设置</Button></Popover>
+</div>
                 <Button type="text" onClick={async()=>{try{await navigator.clipboard.writeText(location.href);message.success('当前筛选链接已复制')}catch{setError('无法复制链接，请从地址栏复制当前筛选地址')}}}>复制筛选链接</Button>
-              </div></div>
+              </div>}><Button icon={<SettingOutlined/>}>列表设置</Button></Popover></div>
               {selected.length > 0 && ["rules","sites"].includes(resource) && (
                 <Space wrap className="bulk-actions">
                   <span>已选择本页 {selected.length} 项</span>
@@ -1210,7 +1128,7 @@ function Application() {
                   ))}
                 </Space>
               )}
-              {selected.length>0&&resource==='findings'&&['ADMIN','ANALYST'].includes(user?.role)&&<Space wrap className="bulk-actions"><span>已选择本页 {selected.length} 条发现</span><Button loading={busy} onClick={()=>void bulkFindings('read')}>批量标记已读</Button><Button onClick={()=>{form.resetFields();setModal('bulk-assign');}}>批量分派负责人</Button></Space>}
+              {selected.length>0&&resource==='findings'&&['ADMIN','ANALYST'].includes(user?.role)&&<Space wrap className="bulk-actions"><span>已选择本页 {selected.length} 条发现</span><Button loading={busy} onClick={()=>void bulkFindings('read')}>批量标记已读</Button></Space>}
               {batchResults.length>0&&<Alert type={batchResults.some(row=>!row.ok)?'warning':'success'} message={'批量处理结果：成功 '+batchResults.filter(row=>row.ok).length+'，失败 '+batchResults.filter(row=>!row.ok).length} description={<ul>{batchResults.map(row=><li key={row.id}>{row.id}：{row.ok?'成功':'失败'} · {row.message}</li>)}</ul>} closable onClose={()=>setBatchResults([])} style={{marginBottom:12}}/>}
               {batchError && (
                 <Alert
@@ -1225,7 +1143,7 @@ function Application() {
                 loading={loading}
                 columns={columns.filter((c) => !hidden.includes(c.title))}
                 rowSelection={
-                  ["rules", "sites", "findings"].includes(resource)
+                  ["rules", "sites", "findings"].includes(resource)&&!securityScope
                     ? { selectedRowKeys: selected, onChange: setSelected }
                     : undefined
                 }
@@ -1234,7 +1152,7 @@ function Application() {
                 locale={{
                   emptyText: error
                     ? "查询失败，请查看错误并重试"
-                    : "暂无记录。可创建记录或接入采集组件。",
+                    : securityScope?.kind==='ALERT'?"暂无匹配告警。请确认采集已启用；没有告警不代表已完成检测。":securityScope?"暂无匹配检查记录，请确认已执行检查并核对筛选范围。":"暂无记录。可创建记录或接入采集组件。",
                 }}
                 pagination={{
                   ...paginationDefaults,
@@ -1255,13 +1173,14 @@ function Application() {
                 description="当前版本不提供此页面的运行数据或操作。请查看实施记录中的功能边界。"
               />
             </div>
-          )}
+          ))}
           </div>
-          {assetAction&&<AssetActionDrawer key={assetAction.record.id+assetAction.mode} {...assetAction} role={user?.role} onModeChange={mode=>openAssetAction(assetAction.record,mode)} onClose={()=>{detailRequestVersion.current++;setAssetAction(undefined)}} onChanged={()=>{if(assetAction.version!==detailRequestVersion.current)return;setAssetAction(undefined);void refresh();}}/>}
-          {modal!=="edit"&&!structuredField&&<Drawer
-            open={!!detail}
+          {assetAction&&<AssetActionDrawer key={assetAction.record.id+assetAction.mode} {...assetAction} role={user?.role} onClose={()=>{if(!detail)detailRequestVersion.current++;setAssetAction(undefined)}} onChanged={()=>{if(assetAction.version!==detailRequestVersion.current)return;setAssetAction(undefined);if(detail&&detail.id===assetAction.record.id)void showDetail(detail,detailResource);void refresh();}}/>}
+          <DetailPanel
+            open={!!detail&&!listEditing}
             width="min(860px, calc(100vw - 24px))"
             className="record-drawer"
+            extra={detailResource==='assets'&&detail&&user?<AssetListActions record={detail} role={user.role} evidenceAllowed={user.role==='ADMIN'||user.dataScope?.canReadEvidence!==false} onEdit={()=>editDetail()} onOpen={mode=>openAssetAction(detail,mode)}/>:undefined}
             title={
               detailResource==='waf-events'&&detail?wafEventTitle(detail):detailResource==='waf-access'&&detail?wafAccessTitle(detail):detail?.title || detail?.name || detail?.hostname || "记录详情"
             }
@@ -1269,32 +1188,11 @@ function Application() {
           >
             {detail && (
               <>
-                <RecordSummary record={detail} resource={detailResource}/>
+                {detailResource==='assets'&&<nav className="asset-detail-navigation module-navigation" aria-label="资产详情模块">{[{key:'overview',label:'资产概览'},{key:'resources',label:'资源监控'},{key:'network',label:'服务、端口与流量'},{key:'inventory',label:'软件与运行清单'},{key:'history',label:'变更历史'},{key:'relations',label:'核查备注'},{key:'raw',label:'原始字段'}].map(tab=><button type="button" key={tab.key} aria-current={assetDetailTab===tab.key?'page':undefined} onClick={()=>setAssetDetailTab(tab.key)}>{tab.label}</button>)}</nav>}
+                {detailResource!=='assets'||assetDetailTab==='overview'?<RecordSummary record={detail} resource={detailResource}/>:null}
  <SecurityContext key={"context"+detailResource+detail.id} record={detail} resource={detailResource} onOpen={(record,target)=>void showDetail(record,target)}/>
- <RecordWorkflowEditor key={detailResource+detail.id} record={detail} resource={detailResource} canEdit={["ADMIN","ANALYST"].includes(user?.role||"")} onChanged={updated=>{if(renderedDetailVersion!==detailRequestVersion.current)return;setDetail({...detail,...updated});void refresh();}}/>
+ <RecordWorkflowEditor onOpenFinding={id=>void showDetail({id},"findings")} simple currentUserEmail={user?.email} key={detailResource+detail.id} record={{...detail,id:detail.id,kind:detail.kind,status:detail.status}} resource={detailResource} canEdit={["ADMIN","ANALYST"].includes(user?.role||"")} onChanged={updated=>{if(renderedDetailVersion!==detailRequestVersion.current)return;setDetail({...detail,...updated});void refresh();}}/>
                 <div className="record-actions">
-                  {detailResource === "findings" &&
-                    detail.kind === "RISK" &&
-                    detail.assetId && (
-                      <Button
-                        type="primary"
-                        onClick={() => {
-                          const finding = detail;
-                          form.resetFields();
-                          form.setFieldsValue({
-                            title: `修复：${finding.title}`,
-                            assetId: finding.assetId,
-                            findingId: finding.id,
-                            template: "FILE_PERMISSION",
-                            permission: "0640",
-                          });
-                          navigate("tasks");
-                          setModal("create");
-                        }}
-                      >
-                        创建关联修复任务
-                      </Button>
-                    )}
                   {detail.assetId && (
                     <Button
                       onClick={() =>
@@ -1365,10 +1263,7 @@ function Application() {
                         </Button>
                       </>
                     )}
-                  {(detailResource === "tasks" ||
-                    (detailResource === "findings" &&
-                      detail.kind === "RISK" &&
-                      ["ADMIN", "ANALYST"].includes(user?.role))) &&
+                  {detailResource === "tasks" &&
                     detail.status === "VERIFYING" && (
                       <Button
                         onClick={() => {
@@ -1399,9 +1294,11 @@ function Application() {
                     </Button>
                   )}
                 </div>
+
+                {detailResource==='assets'&&assetDetailTab==='overview'&&<Descriptions bordered size="small" column={{xs:1,sm:2,lg:3}} items={[{key:'ip',label:'资产 IP',children:detail.ip||'未记录'},{key:'heartbeat',label:'最近心跳',children:formatTime(detail.lastSeen)},{key:'agent',label:'Agent 版本',children:detail.inventory?.agentDiagnostics?.version||'未记录'}]}/>}
                 <div ref={inlineFormTarget}/>
                 {detailError && <Alert className="record-feedback" type="error" message={detailError} />}
-                {detailResource==="assets"&&<section className="record-subsection"><AssetHistoryPanel id={detail.id} onInspect={(value,title)=>setStructuredField({value,title})}/></section>}
+                {detailResource==="assets"&&assetDetailTab==="history"&&<section className="record-subsection"><AssetHistoryPanel id={detail.id} onInspect={(value,title)=>setStructuredField({value,title})}/></section>}
                 {user&&user.role!=="VIEWER"&&detailResource!=="assets"&&<div className="record-tool-groups">
 
                 {detailResource==="users"&&isAdmin&&<div className="record-validation-actions"><ScopeEditor record={detail} onChanged={()=>{if(renderedDetailVersion===detailRequestVersion.current)void showDetail(detail,"users")}}/></div>}
@@ -1428,18 +1325,19 @@ function Application() {
                     }
                   />
                 )}
-                {detailResource==="assets"&&<><HostNetworkPanel key={"network"+detail.id} assetId={detail.id}/><AssetInventoryView key={detail.id} inventory={detail.inventory} onInspect={(value,title)=>setStructuredField({value,title})}/></>}
+                {detailResource==="assets"&&assetDetailTab==='resources'&&<HostResourceMonitoring assetId={detail.id}/>}
+                {detailResource==="assets"&&assetDetailTab==='network'&&<HostNetworkPanel key={"network"+detail.id} assetId={detail.id} inventory={detail.inventory}/>}
+                {detailResource==="assets"&&assetDetailTab==='inventory'&&<AssetInventoryView key={detail.id} inventory={detail.inventory} onInspect={(value,title)=>setStructuredField({value,title})}/>}
                 {detailResource==="waf-events"&&<WafInspectionView record={detail}/>}
                 {detailResource==="waf-access"&&<WafAccessView record={detail}/>}
                 {!["findings","incidents","assets","waf-events","waf-access"].includes(detailResource)&&<EvidenceView value={detail.evidence ?? detail.parameters ?? detail.config ?? detail.inventory ?? detail.description} title="证据与执行参数"/>}
                 {detail.result && <EvidenceView value={detail.result} title="执行结果"/>}
-                <RecordFieldsTable value={detail} title="完整原始记录"/>
-                {["findings", "incidents", "tasks", "assets"].includes(
+                {(detailResource!=="assets"||assetDetailTab==="raw")&&(detailResource==='assets'?<RecordFieldsTable value={detail} title="完整原始记录"/>:<details className="evidence-raw"><summary>完整原始记录</summary><RecordFieldsTable value={detail} title="完整原始记录"/></details>)}
+                {(detailResource!=="assets"||assetDetailTab==="relations")&&["findings", "incidents", "tasks", "assets"].includes(
                   detailResource,
                 ) && (
-                  <>
-                    <RelatedTimeline key={detailResource+detail.id+comments.length} resource={detailResource} id={detail.id} onOpen={(r,target)=>void showDetail(r,target)}/>
-                    <h3>调查与处理备注</h3>
+                  <details className="evidence-raw" open={detailResource==='assets'}><summary>核查备注</summary>
+                    <h3>核查备注</h3>
                     <Timeline
                       items={comments.map((c) => ({
                         children: (
@@ -1478,12 +1376,12 @@ function Application() {
                     >
                       添加备注
                     </Button>
-                  </>
+                  </details>
                 )}
-                {["findings", "incidents", "tasks", "assets"].includes(
+                {(detailResource!=="assets"||assetDetailTab==="relations")&&["findings", "incidents", "tasks", "assets"].includes(
                   detailResource,
                 ) && (
-                  <>
+                  <details className="evidence-raw" open={detailResource==='assets'}><summary>证据附件</summary>
                     <h3>证据附件</h3>
                     {user?.role !== "VIEWER" && (
                       <div className="evidence-upload">
@@ -1589,7 +1487,7 @@ function Application() {
                         },
                       ]}
                     />
-                  </>
+                  </details>
                 )}
                 {["rules", "sites"].includes(detailResource) && (
                   <>
@@ -1636,8 +1534,8 @@ function Application() {
                     />
                   </>
                 )}
-                {isAdmin && (
-                  <>
+                {isAdmin && (detailResource!=="assets"||assetDetailTab==="relations") && (
+                  <details className="evidence-raw" open={detailResource==='assets'}><summary>操作时间线</summary>
                     <h3>操作时间线</h3>
                     <Timeline
                       items={history.map((h) => ({
@@ -1651,16 +1549,17 @@ function Application() {
                         ),
                       }))}
                     />
-                  </>
+                  </details>
                 )}
               </>
             )}
-          </Drawer>}
-          {structuredField&&<Drawer open placement="right" className="record-drawer" width="min(860px, calc(100vw - 24px))" title={structuredField.title} onClose={()=>setStructuredField(undefined)}><RecordFieldsTable value={structuredField.value}/></Drawer>}
+          </DetailPanel>
+          {structuredField&&<DetailPanel open placement="right" className="record-drawer" width="min(860px, calc(100vw - 24px))" title={structuredField.title} onClose={()=>setStructuredField(undefined)}><RecordFieldsTable value={structuredField.value}/></DetailPanel>}
           <RecordFormHost
-            centered={["assets","sites","rules"].includes(editorResource)}
+            width="min(1040px, calc(100vw - 32px))"
+            keyboard={!busy}
             inlineTarget={modal!=="edit"&&detail&&!["sites","rules"].includes(detailResource)&&inlineDetailModes.includes(modal)?inlineFormTarget.current:null}
-            className="module-modal"
+            className="module-form-drawer"
             title={
               modal === "assign" || modal === "bulk-assign"
                 ? "分派负责人"
@@ -1675,7 +1574,7 @@ function Application() {
                         : modal === "status"
                           ? "更新处置状态"
                           : modal === "create"
-                            ? "新建记录"
+                            ? ({assets:"添加主机资产",rules:"添加检测规则",users:"添加用户"}[editorResource]||"新增记录")
                             : modal === "import"
                               ? "导入外部发现"
                               : modal === "reject"
@@ -1908,8 +1807,8 @@ function Application() {
               )}
             </Form>
           </RecordFormHost>
-        </Layout.Content>
-      </Layout>
+        </DetailWorkspace>
+      </Layout.Content>
     </Layout>
   );
 }

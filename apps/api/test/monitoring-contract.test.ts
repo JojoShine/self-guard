@@ -1,0 +1,10 @@
+import {test} from 'node:test';import assert from 'node:assert/strict';
+import {hostMetricInput,postgresMonitorInput,postgresRates,consecutiveExceeded} from '../src/monitoring-contract';
+test('monitoring inputs preserve unknowns and require verified remote TLS',()=>{
+ const metric={schema:'selfguard-host-metrics-v1',capturedAt:new Date().toISOString(),status:'PARTIAL',issues:['MEMORY_UNAVAILABLE'],cpu:{logicalCpus:2},network:{},filesystems:[]};assert.equal(hostMetricInput.parse(metric).cpu.usedPercent,undefined);assert.throws(()=>hostMetricInput.parse({...metric,cpu:{usedPercent:101}}));
+ const c={address:'192.0.2.1',port:5432,database:'postgres',username:'monitor',password:'fixture',tls:true};assert.ok(postgresMonitorInput.safeParse(c).success);assert.equal(postgresMonitorInput.safeParse({...c,tls:false}).success,false);assert.ok(postgresMonitorInput.safeParse({...c,address:'127.0.0.1',tls:false}).success);assert.equal(postgresMonitorInput.safeParse({...c,username:'monitor\nunsafe'}).success,false);assert.equal(postgresMonitorInput.safeParse({...c,database:'postgres\u0000other'}).success,false);assert.equal(postgresMonitorInput.safeParse({...c,query:'SELECT * FROM private'}).success,false);
+});
+test('database rates reset safely and thresholds require consecutive fresh samples',()=>{
+ const old={capturedAt:'2026-11-10T00:00:00Z',resetAt:'one',commits:10,rollbacks:2,deadlocks:1};const current={...old,capturedAt:'2026-11-10T00:01:00Z',commits:70,rollbacks:8,deadlocks:2};assert.deepEqual(postgresRates(old,current),{commitsPerSecond:1,rollbacksPerSecond:0.1,deadlocksIncrease:1});assert.deepEqual(postgresRates(old,{...current,resetAt:'two'}),{});assert.deepEqual(postgresRates(current,old),{});
+ const samples=[0,60,120].map(t=>({at:new Date(t*1000),value:90}));assert.equal(consecutiveExceeded(samples,85,3),true);assert.equal(consecutiveExceeded(samples,90,3,'lt'),false);assert.equal(consecutiveExceeded(samples,91,3,'lt'),true);assert.equal(consecutiveExceeded([...samples.slice(0,2),{at:new Date(500000),value:90}],85,3),false);assert.equal(consecutiveExceeded([{...samples[0],value:undefined},...samples.slice(1)],85,3),false);
+});

@@ -14,3 +14,6 @@ playwright-report/
 storage/
 .DS_Store
 .superpowers/
+
+__pycache__/
+*.pyc

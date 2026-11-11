@@ -1,3 +1,4 @@
+import {frozenRequestLimit} from './active-scan-limits';
 import {assertApprovedActiveSources} from './active-scan-pins';
 import {Prisma} from '@prisma/client';
 import {ConflictException} from '@nestjs/common';import {isIP} from 'node:net';import {Db} from './db';import {executionAuthorization,assertExecutionAsset} from './scan-authorization';import {resolveScanScope} from './construction-contracts';import {planScanTiming,scanWindowOpen} from './scan-timing';
@@ -30,7 +31,7 @@ export async function acquireHttpAllowance(db:Db,runId:string,targetId:string,le
   await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext('selfguard-scan-http-v1'))::text`;
   const {run,target,now,allowed}=await assertActiveScanTarget(tx,runId,targetId,leaseId);
   if(keys.some(key=>!allowed.has(key)))throw new ConflictException('请求地址不属于本次冻结目标');
-  if(target.httpRequests>=300)return {allowed:false,reason:'TARGET_REQUEST_LIMIT',retryAfterMs:0};
+  if(target.httpRequests>=frozenRequestLimit(target.inventory))return {allowed:false,reason:'TARGET_REQUEST_LIMIT',retryAfterMs:0};
   const bucketKeys=['GLOBAL',...keys.map(key=>'ENDPOINT:'+key)],buckets=await tx.scanBudgetBucket.findMany({where:{key:{in:bucketKeys}}}),waitUntil=Math.max(now.getTime(),...buckets.map(bucket=>bucket.nextAllowedAt.getTime()));
   if(waitUntil>now.getTime())return {allowed:false,reason:'RATE_WAIT',retryAfterMs:waitUntil-now.getTime()};
   for(const key of bucketKeys){const nextAllowedAt=new Date(now.getTime()+(key==='GLOBAL'?20:500));await tx.scanBudgetBucket.upsert({where:{key},create:{key,nextAllowedAt},update:{nextAllowedAt}})}

@@ -15,6 +15,8 @@ export function sshArguments(address:string,port:number,username:string,keyFile:
 export function remoteInstallCommand(server:string,id:string,digest:string,root:string,caCertificate='',bootstrap:{proxyUrl?:string;stateDir?:string;proxyMode?:string}={}){
  const u=new URL(server);if(!validPlatformURL(server)||!/^[a-f0-9-]{36}$/.test(id)||!/^[a-f0-9]{64}$/.test(digest)||!/^[A-Za-z0-9+/=]+$/.test(root))throw new BadRequestException('远程安装参数无效');
  const proxyMode=bootstrap.proxyMode||(bootstrap.proxyUrl?'EXPLICIT':'ENVIRONMENT');if(!['DIRECT','EXPLICIT','ENVIRONMENT'].includes(proxyMode)||(proxyMode==='EXPLICIT')!==!!bootstrap.proxyUrl)throw new BadRequestException('代理方式与地址不一致');
+ // Older host Bash can treat empty arrays as unset under nounset; expand zero arguments safely.
+ const curlOptions='${curl_ca[@]+"${curl_ca[@]}"} ${curl_proxy[@]+"${curl_proxy[@]}"}';
  const script=`set -euo pipefail
 umask 077
 stage=PREPARE
@@ -23,6 +25,7 @@ read -r ticket
 [[ "$ticket" =~ ^[A-Za-z0-9_-]{43}$ ]] || exit 1
 file=$(mktemp)
 ca_file=''
+ready_file=''
 curl_ca=()
 install_env=(/usr/bin/env ${shellQuote("AGENT_PROXY_MODE="+proxyMode)})
 curl_proxy=()
@@ -30,18 +33,17 @@ ${proxyMode==='DIRECT'?`curl_proxy=(--noproxy '*' --proxy '')`:''}
 ${bootstrap.stateDir?`install_env+=( ${shellQuote("AGENT_INSTALL_STATE_DIR="+bootstrap.stateDir)} )`:""}
 ${bootstrap.proxyUrl?`curl_proxy=(--noproxy '' --proxy ${shellQuote(bootstrap.proxyUrl)})
 install_env+=( ${shellQuote("AGENT_PROXY_URL="+bootstrap.proxyUrl)} )`:""}
-trap 'rm -f "$file" "${'$'}{ca_file}"; unset ticket' EXIT
+trap 'install_exit=$?; rm -f "$file" "$ca_file" "$ready_file"; unset ticket; exit "$install_exit"' EXIT
 ${caCertificate?`ca_file=$(mktemp)
 printf '%s' ${shellQuote(Buffer.from(caCertificate).toString('base64'))} | base64 -d > "$ca_file"
 curl_ca=(--cacert "$ca_file")
 install_env+=("AGENT_CA_FILE=$ca_file")`:''}
 stage=PLATFORM
 ready_file=$(mktemp)
-trap 'rm -f "$file" "$ca_file" "$ready_file"; unset ticket' EXIT
-curl "${'$'}{curl_ca[@]}" "${'$'}{curl_proxy[@]}" --connect-timeout 10 --max-time 15 --fail --silent --show-error --proto ${shellQuote('='+u.protocol.slice(0,-1))} --tlsv1.2 ${shellQuote(platformBaseURL(server)+'/api/health/ready')} -o "$ready_file"
+curl ${curlOptions} --connect-timeout 10 --max-time 15 --fail --silent --show-error --proto ${shellQuote('='+u.protocol.slice(0,-1))} --tlsv1.2 ${shellQuote(platformBaseURL(server)+'/api/health/ready')} -o "$ready_file"
 grep -Eq '"ready"[[:space:]]*:[[:space:]]*true' "$ready_file"
 stage=DOWNLOAD
-printf 'header = "Authorization: Bearer %s"\\n' "$ticket" | curl --config - "${'$'}{curl_ca[@]}" "${'$'}{curl_proxy[@]}" --connect-timeout 15 --max-time 300 --fail --silent --show-error --proto ${shellQuote('='+u.protocol.slice(0,-1))} --tlsv1.2 ${shellQuote(platformBaseURL(server)+'/api/agent/install/'+id+'/artifact')} -o "$file"
+printf 'header = "Authorization: Bearer %s"\\n' "$ticket" | curl --config - ${curlOptions} --connect-timeout 15 --max-time 300 --fail --silent --show-error --proto ${shellQuote('='+u.protocol.slice(0,-1))} --tlsv1.2 ${shellQuote(platformBaseURL(server)+'/api/agent/install/'+id+'/artifact')} -o "$file"
 stage=VERIFY
 printf '%s  %s\\n' ${shellQuote(digest)} "$file" | sha256sum -c -
 chmod 700 "$file"

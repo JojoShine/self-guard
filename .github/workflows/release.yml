@@ -32,4 +32,4 @@ jobs:
         env: {GH_TOKEN: '${{ github.token }}'}
         run: |
           tar -czf "self-guard-$GITHUB_REF_NAME-deploy.tar.gz" -C candidate compose.prod.yaml .env.prod.example DEPLOYMENT.md deploy nginx release-manifest.json
-          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" --notes 'Verified static frontend + digest-pinned backend/WAF + bundled PostgreSQL. BASE_PATH=/self-guard. See DEPLOYMENT.md.' "self-guard-$GITHUB_REF_NAME-deploy.tar.gz" candidate/self-guard-web.tar.gz candidate/release-manifest.json candidate/compose.prod.yaml candidate/acceptance.json
+          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" --notes 'Verified static frontend + digest-pinned backend + bundled PostgreSQL. BASE_PATH=/self-guard. See DEPLOYMENT.md.' "self-guard-$GITHUB_REF_NAME-deploy.tar.gz" candidate/self-guard-web.tar.gz candidate/release-manifest.json candidate/compose.prod.yaml candidate/acceptance.json

@@ -22,7 +22,7 @@ export function ScanEndpointPanel(){
  {title:'目标名称',dataIndex:'name',render:(name,row)=><Button type="link" className="record-title-link" onClick={()=>{setSelected(row);setPreview(undefined)}}>{name}</Button>},{title:'归属资产',render:(_,row)=>row.asset?<Button type="link" className="record-title-link" onClick={()=>{location.hash='assets?assetId='+encodeURIComponent(row.assetId)}}>{row.asset.hostname}</Button>:'关联资产已删除'},{title:'服务入口',render:(_,row)=>endpointName(row)},{title:'范围状态',dataIndex:'status',render:value=><StatusTag value={value} labels={labels}/>},{title:'配置版本',dataIndex:'version'},{title:'操作',render:(_,row)=><Space wrap size={8}>{catalog.canEdit&&<Button disabled={!!busy} onClick={()=>void inspect(row)}>预检范围</Button>}{canEdit(row)&&<Button disabled={!!busy||editor} onClick={()=>edit(row)}>编辑目标</Button>}</Space>},
  ]}/>
  </ModuleSection>
- {editor&&<ModuleSection onClose={()=>{setEditor(false)}} busy={!!busy} error={error} title={editing?'编辑网络目标':'登记网络目标'} description="保存为待批准范围；协议、主机、端口或Web路径变更需要重新预检，管理员批准后才能用于主动扫描。">
+ {editor&&<ModuleSection modal onClose={()=>{setEditor(false)}} busy={!!busy} error={error} title={editing?'编辑网络目标':'登记网络目标'} description="保存为待批准范围；协议、主机、端口或Web路径变更需要重新预检，管理员批准后才能用于主动扫描。">
  {editing?.status==='APPROVED'&&<Alert type="info" showIcon message="修改地址、端口或路径会撤销当前范围批准" description="仅修改名称会保留批准；范围变更后，关联计划需要核对新范围。"/>}
  <Form name="scan-endpoint" form={form} layout="vertical" disabled={!!busy} className="module-form-grid">
  <Form.Item name="name" label="目标名称（可选）" extra="填写便于团队识别的名称，如支付服务Web入口；留空使用主机和端口。"><Input aria-label="目标名称（可选）" maxLength={200} placeholder="支付服务Web入口"/></Form.Item>

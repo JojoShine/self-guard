@@ -6,6 +6,12 @@ import {
   validateTaskParameters,
   redactEvent,
 } from "../src/domain";
+test('alerts can submit processing evidence for separate verification without bypassing closure',()=>{
+ assert.equal(findingTransition('ALERT','IN_PROGRESS','VERIFYING',{reason:'已调整访问范围，等待独立复查'}),'VERIFYING');
+ assert.equal(findingTransition('ALERT','VERIFYING','IN_PROGRESS',{reason:'仍能复现'}),'IN_PROGRESS');
+ assert.throws(()=>findingTransition('ALERT','VERIFYING','RESOLVED',{reason:'跳过复查'}));
+ assert.throws(()=>findingTransition('RISK','IN_PROGRESS','VERIFYING',{reason:'  '}));
+});
 test("risk cannot close directly or be accepted without rationale and expiry", () => {
   assert.throws(() => findingTransition("RISK", "OPEN", "CLOSED", {}));
   assert.throws(() =>

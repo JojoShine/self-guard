@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Single original KYSA-202203-1027 fixture from official V10SP3/x86_64 updateinfo; not a complete feed. -->
+<updates><update from="cve_manager@kylinos.cn" status="stable" type="security" version="1.0">
+		<id>KYSA-202203-1027</id>
+		<title>关于 curl 的补丁包公告</title>
+		<release>Kylin_Server_V10_SP3</release>
+		<issued date="2022-03-11 15:45:46" />
+		<updated date="2022-03-11 15:45:46" />
+		<severity>Moderate</severity>
+		<description>关于 curl 的软件包现在已有更新补丁提供。
+您可在CVE详情页查看各个CVE的详细信息与补丁包下载链接。</description>
+		<references>
+			<reference href="https://support.kylinos.cn/#/security/cveDetail?allTitle=CVE-2020-8177" id="CVE-2020-8177" severity="Moderate" severity_desc="中风险" title="HAXX Haxx curl是瑞典Haxx（HAXX）公司的一套利用URL语法在命令行下工作的文件传输工具。该工具支持文件上传和下载，并包含一个用于程序开发的libcurl（客户端URL传输库）。Haxx curl 7.20.0版本至7.71.0之前版本中存在注入漏洞。攻击者可利用该漏洞覆盖本地文件。" type="cve" />
+		</references>
+		<pkglist>
+			<collection short="Kylin_Server_V10_SP3">
+				<name>银河麒麟高级服务器操作系统 V10 SP3</name>
+				<package arch="x86_64" epoch="0" name="curl" release="12.ky10" src="https://update.cs2c.com.cn/NS/V10/V10SP3/os/adv/lic/base/x86_64/Packages/curl-7.71.1-12.ky10.x86_64.rpm" version="7.71.1">
+					<filename>curl-7.71.1-12.ky10.x86_64.rpm</filename>
+				</package>
+				<package arch="noarch" epoch="0" name="curl-help" release="12.ky10" src="https://update.cs2c.com.cn/NS/V10/V10SP3/os/adv/lic/base/x86_64/Packages/curl-help-7.71.1-12.ky10.noarch.rpm" version="7.71.1">
+					<filename>curl-help-7.71.1-12.ky10.noarch.rpm</filename>
+				</package>
+				<package arch="x86_64" epoch="0" name="libcurl" release="12.ky10" src="https://update.cs2c.com.cn/NS/V10/V10SP3/os/adv/lic/base/x86_64/Packages/libcurl-7.71.1-12.ky10.x86_64.rpm" version="7.71.1">
+					<filename>libcurl-7.71.1-12.ky10.x86_64.rpm</filename>
+				</package>
+				<package arch="x86_64" epoch="0" name="libcurl-devel" release="12.ky10" src="https://update.cs2c.com.cn/NS/V10/V10SP3/os/adv/lic/base/x86_64/Packages/libcurl-devel-7.71.1-12.ky10.x86_64.rpm" version="7.71.1">
+					<filename>libcurl-devel-7.71.1-12.ky10.x86_64.rpm</filename>
+				</package>
+			</collection>
+		</pkglist>
+	</update>
+	</updates>

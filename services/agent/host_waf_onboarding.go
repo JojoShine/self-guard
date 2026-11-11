@@ -17,24 +17,34 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"strconv"
 	"strings"
 	"time"
 )
 
 type HostWafPlan struct {
-	Schema      string `json:"schema"`
-	AssetID     string `json:"assetId"`
-	SiteID      string `json:"siteId"`
-	Hostname    string `json:"hostname"`
-	Upstream    string `json:"upstream"`
-	Image       string `json:"image"`
-	NginxConfig string `json:"nginxConfig"`
-	WafPort     int    `json:"wafPort"`
-	EntryURL    string `json:"entryUrl"`
-	HealthPath  string `json:"healthPath"`
-	Mode        string `json:"mode"`
+	ExpectedPlannedConfigSHA256 string  `json:"expectedPlannedConfigSha256,omitempty"`
+	WafCPUQuota                 float64 `json:"wafCPUQuota,omitempty"`
+	WafMemoryBytes              int64   `json:"wafMemoryBytes,omitempty"`
+	ImageArchiveSHA256          string  `json:"imageArchiveSha256,omitempty"`
+	ImageArchiveBytes           int64   `json:"imageArchiveBytes,omitempty"`
+	BusinessMode                string  `json:"businessMode,omitempty"`
+	ListenPort                  int     `json:"listenPort,omitempty"`
+	CertificateFile             string  `json:"certificateFile,omitempty"`
+	CertificateKeyFile          string  `json:"certificateKeyFile,omitempty"`
+	ExpectedConfigSHA256        string  `json:"expectedConfigSha256,omitempty"`
+	ExpectedNginxSHA256         string  `json:"expectedNginxSha256,omitempty"`
+	Schema                      string  `json:"schema"`
+	AssetID                     string  `json:"assetId"`
+	SiteID                      string  `json:"siteId"`
+	Hostname                    string  `json:"hostname"`
+	Upstream                    string  `json:"upstream"`
+	Image                       string  `json:"image"`
+	NginxConfig                 string  `json:"nginxConfig"`
+	WafPort                     int     `json:"wafPort"`
+	EntryURL                    string  `json:"entryUrl"`
+	HealthPath                  string  `json:"healthPath"`
+	Mode                        string  `json:"mode"`
 }
 
 func hostTool(name string, args ...string) (string, error) {
@@ -64,6 +74,33 @@ func runNginx(args ...string) error { _, err := hostTool("nginx", args...); retu
 func (p HostWafPlan) validate() error {
 	if p.Schema != "selfguard-nginx-v1" || !regexp.MustCompile(`^[a-zA-Z0-9-]{1,64}$`).MatchString(p.AssetID) || !regexp.MustCompile(`^[a-zA-Z0-9-]{1,64}$`).MatchString(p.SiteID) || !regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9.-]{0,252}$`).MatchString(p.Hostname) || p.WafPort < 1024 || p.WafPort > 65535 || (p.Mode != "OBSERVE" && p.Mode != "BLOCK") || !regexp.MustCompile(`^(?:sha256:[a-f0-9]{64}|[A-Za-z0-9./_:-]+@sha256:[a-f0-9]{64})$`).MatchString(p.Image) {
 		return errors.New("invalid or mutable host WAF plan")
+	}
+	if p.BusinessMode != "" && p.BusinessMode != "EXISTING" && p.BusinessMode != "NEW" {
+		return errors.New("unknown nginx business mode")
+	}
+	if p.BusinessMode == "NEW" {
+		if _, err := newNginxSite(p); err != nil {
+			return err
+		}
+	} else if p.ListenPort != 0 || p.CertificateFile != "" || p.CertificateKeyFile != "" {
+		return errors.New("new site fields cannot modify existing nginx ingress")
+	}
+	if p.ExpectedConfigSHA256 != "" && p.ExpectedConfigSHA256 != "ABSENT" && !regexp.MustCompile(`^[a-f0-9]{64}$`).MatchString(p.ExpectedConfigSHA256) {
+		return errors.New("invalid nginx source digest")
+	}
+	if p.ExpectedNginxSHA256 != "" && !regexp.MustCompile(`^[a-f0-9]{64}$`).MatchString(p.ExpectedNginxSHA256) {
+		return errors.New("invalid nginx full configuration digest")
+	}
+	if p.ImageArchiveSHA256 != "" || p.ImageArchiveBytes != 0 {
+		if !regexp.MustCompile(`^[a-f0-9]{64}$`).MatchString(p.ImageArchiveSHA256) || p.ImageArchiveBytes < 1 || p.ImageArchiveBytes > 64<<20 {
+			return errors.New("invalid managed WAF image archive")
+		}
+	}
+	if (p.WafCPUQuota != 0 || p.WafMemoryBytes != 0) && (p.WafCPUQuota != 4 || p.WafMemoryBytes != 1073741824) {
+		return errors.New("invalid bounded WAF runtime resource profile")
+	}
+	if p.ExpectedPlannedConfigSHA256 != "" && !regexp.MustCompile(`^[a-f0-9]{64}$`).MatchString(p.ExpectedPlannedConfigSHA256) {
+		return errors.New("invalid planned nginx digest")
 	}
 	entry, err := url.Parse(p.EntryURL)
 	if err != nil || entry.Hostname() != "127.0.0.1" || (entry.Scheme != "http" && entry.Scheme != "https") || entry.User != nil || entry.RawQuery != "" || entry.Fragment != "" || entry.Path != "/" {
@@ -181,17 +218,29 @@ func runHostWafOnboarding(planFile string, out io.Writer) (resultErr error) {
 	if err = p.validate(); err != nil {
 		return err
 	}
-	if err = executorTrustedConfig(p.NginxConfig); err != nil {
-		return err
-	}
-	source, err := readBoundedFile(p.NginxConfig, 256<<10)
+	source, err := nginxPlanSource(p)
 	if err != nil {
 		return err
+	}
+	if p.BusinessMode == "NEW" && p.ExpectedNginxSHA256 == "" {
+		return errors.New("new business requires reviewed nginx preflight")
+	}
+	if p.ExpectedNginxSHA256 != "" {
+		preview, e := inspectNginxPlan(p)
+		if e != nil {
+			return e
+		}
+		if preview.NginxSHA256 != p.ExpectedNginxSHA256 || preview.ConfigSHA256 != p.ExpectedConfigSHA256 {
+			return errors.New("nginx configuration changed since reviewed preflight")
+		}
 	}
 	local := "127.0.0.1:" + strconv.Itoa(p.WafPort)
 	after, err := planNginxOnboarding(source, p.Hostname, p.Upstream, local)
 	if err != nil {
 		return err
+	}
+	if p.ExpectedPlannedConfigSHA256 != "" && contentDigest(after) != p.ExpectedPlannedConfigSHA256 {
+		return errors.New("planned nginx change differs from reviewed preflight")
 	}
 	a, err := hostNetworkAgent()
 	if err != nil {
@@ -207,16 +256,20 @@ func runHostWafOnboarding(planFile string, out io.Writer) (resultErr error) {
 			_ = a.request("POST", "/agent/network-report", a.Identity.Token, report, nil)
 		}
 	}()
-	image, err := hostTool("docker", "image", "inspect", "--format", "{{.Os}}|{{.Architecture}}", p.Image)
-	if err != nil || image != "linux|"+runtime.GOARCH {
-		return errors.New("verified WAF image must already be loaded for this Linux architecture")
+	if err = ensureHostWafImage(a, p); err != nil {
+		return err
 	}
 	occupied, err := net.Listen("tcp4", local)
 	if err != nil {
 		return errors.New("selected local WAF port is already in use")
 	}
 	occupied.Close()
-	before, err := probeIngress(p, "")
+	var before ingressProbe
+	if p.BusinessMode == "NEW" {
+		before, err = probeBusinessUpstream(p)
+	} else {
+		before, err = probeIngress(p, "")
+	}
 	if err != nil || before.status < 200 || before.status >= 300 {
 		return errors.New("nginx must serve a stable successful health response before onboarding")
 	}
@@ -230,6 +283,9 @@ func runHostWafOnboarding(planFile string, out io.Writer) (resultErr error) {
 	state := filepath.Join(root, p.AssetID)
 	if err = os.Mkdir(state, 0700); err != nil {
 		return errors.New("host WAF state already exists; inspect or roll back its transaction before retry")
+	}
+	if err = writePrivate(filepath.Join(state, "plan.json"), p); err != nil {
+		return err
 	}
 	// Retain all journals; an interrupted attempt is never silently overwritten.
 	var bootstrap struct {
@@ -286,14 +342,19 @@ func runHostWafOnboarding(planFile string, out io.Writer) (resultErr error) {
 	if err = os.Chown(wafState, 10001, 10001); err != nil {
 		return err
 	}
-	if err = os.WriteFile(filepath.Join(state, "rule-public-key"), []byte(bootstrap.PublicKey), 0644); err != nil {
+	if err = writeHostWafTrustFile(filepath.Join(state, "rule-public-key"), []byte(bootstrap.PublicKey)); err != nil {
 		return err
 	}
 	env := "WAF_LISTEN=" + local + "\nWAF_STATE_DIR=/state\nWAF_CONFIG=/state/config.json\nWAF_NODE_ID=" + credential.NodeID + "\nWAF_API_URL=" + strings.TrimSuffix(a.Config.Server, "/") + "\nWAF_TOKEN=" + credential.Token + "\n"
 	if a.Config.AllowHTTP {
 		env += "WAF_ALLOW_HTTP=true\n"
 	}
-	args := []string{"run", "-d", "--name", "selfguard-host-waf-" + p.AssetID, "--network", "host", "--pull", "never", "--user", "10001:10001", "--read-only", "--cap-drop", "ALL", "--security-opt", "no-new-privileges", "--pids-limit", "64", "--memory", "256m", "--cpus", "0.5", "--restart", "unless-stopped", "--tmpfs", "/tmp:rw,noexec,nosuid,size=16m", "--mount", "type=bind,src=" + wafState + ",dst=/state", "--env-file", filepath.Join(state, "node.env")}
+	cpu, memory := "0.5", "256m"
+	if p.WafCPUQuota != 0 {
+		cpu = strconv.FormatFloat(p.WafCPUQuota, 'f', -1, 64)
+		memory = strconv.FormatInt(p.WafMemoryBytes, 10)
+	}
+	args := []string{"run", "-d", "--name", "selfguard-host-waf-" + p.AssetID, "--network", "host", "--pull", "never", "--user", "10001:10001", "--read-only", "--cap-drop", "ALL", "--security-opt", "no-new-privileges", "--pids-limit", "64", "--memory", memory, "--cpus", cpu, "--restart", "unless-stopped", "--tmpfs", "/tmp:rw,noexec,nosuid,size=16m", "--mount", "type=bind,src=" + wafState + ",dst=/state", "--env-file", filepath.Join(state, "node.env")}
 	if bootstrap.PublicKey != "" {
 		env += "WAF_RULE_PUBLIC_KEY_FILE=/rule-public-key\n"
 		args = append(args, "--mount", "type=bind,src="+filepath.Join(state, "rule-public-key")+",dst=/rule-public-key,readonly")
@@ -308,7 +369,7 @@ func runHostWafOnboarding(planFile string, out io.Writer) (resultErr error) {
 			return readErr
 		}
 		caCopy := filepath.Join(state, "management-ca.pem")
-		if err = os.WriteFile(caCopy, caBytes, 0644); err != nil {
+		if err = writeHostWafTrustFile(caCopy, caBytes); err != nil {
 			return err
 		}
 		args = append(args, "--mount", "type=bind,src="+caCopy+",dst=/management-ca.pem,readonly")
@@ -335,7 +396,7 @@ func runHostWafOnboarding(planFile string, out io.Writer) (resultErr error) {
 			var tx nginxTransaction
 			read(filepath.Join(transaction, "journal.json"), &tx)
 			current, readErr := os.ReadFile(p.NginxConfig)
-			if readErr == nil && contentDigest(current) == contentDigest(source) {
+			if readErr == nil && contentDigest(current) == contentDigest(source) || p.BusinessMode == "NEW" && os.IsNotExist(readErr) {
 				_, stopErr := hostTool("docker", "stop", containerID)
 				resultErr = errors.Join(resultErr, stopErr)
 			}
@@ -347,11 +408,13 @@ func runHostWafOnboarding(planFile string, out io.Writer) (resultErr error) {
 		if resultErr != nil {
 			report["message"] = "Onboarding failed; inspect the local transaction and original configuration"
 		}
-		writePrivate(filepath.Join(state, "report.json"), report)
-		if publishErr := a.request("POST", "/agent/network-report", a.Identity.Token, report, nil); publishErr != nil {
-			fmt.Fprintln(out, "Local outcome retained; platform report delivery failed")
+		if saveErr := writePrivate(filepath.Join(state, "report.json"), report); saveErr != nil {
+			resultErr = errors.Join(resultErr, errors.New("local onboarding report could not be persisted"))
 		}
-		json.NewEncoder(out).Encode(report)
+		if publishErr := a.request("POST", "/agent/network-report", a.Identity.Token, report, nil); publishErr != nil {
+			resultErr = errors.Join(resultErr, errors.New("local outcome retained; platform report delivery failed"))
+		}
+		resultErr = errors.Join(resultErr, json.NewEncoder(out).Encode(report))
 	}()
 	// Ensure the loopback listener is serving before changing any nginx file.
 	ready := false
@@ -373,9 +436,36 @@ func runHostWafOnboarding(planFile string, out io.Writer) (resultErr error) {
 		return err
 	}
 	token := hex.EncodeToString(nonce[:])
-	err = applyNginxTransaction(p.NginxConfig, transaction, after, contentDigest(source), func() error {
-		return verifyHostWafIngress(wafState, p, before, token)
-	}, runNginx)
+	verify := func() error { return verifyHostWafIngress(wafState, p, before, token) }
+	review := func() error {
+		if p.ExpectedNginxSHA256 == "" {
+			return nil
+		}
+		source, e := nginxPlanSource(p)
+		if e != nil {
+			return e
+		}
+		if p.BusinessMode == "NEW" {
+			source = nil
+		}
+		dump, e := hostTool("nginx", "-T")
+		if e != nil {
+			return e
+		}
+		preview, e := describeNginxPreflight(p, source, []byte(dump))
+		if e != nil {
+			return e
+		}
+		if preview.NginxSHA256 != p.ExpectedNginxSHA256 || preview.ConfigSHA256 != p.ExpectedConfigSHA256 || preview.PlannedConfigSHA256 != p.ExpectedPlannedConfigSHA256 {
+			return errors.New("nginx configuration changed during deployment; reviewed change not published")
+		}
+		return nil
+	}
+	if p.BusinessMode == "NEW" {
+		err = applyNewNginxTransaction(p.NginxConfig, transaction, after, verify, runNginx, review)
+	} else {
+		err = applyNginxTransaction(p.NginxConfig, transaction, after, contentDigest(source), verify, runNginx, review)
+	}
 	if err != nil {
 		return err
 	}
@@ -418,6 +508,38 @@ func runHostWafRollback(transaction string, out io.Writer) error {
 	if err := executorPlatform(); err != nil {
 		return err
 	}
+	state := filepath.Dir(transaction)
+	if _, err := os.Lstat(filepath.Join(state, "plan.json")); err == nil {
+		if err = executorTrustedConfig(filepath.Join(state, "plan.json")); err != nil {
+			return err
+		}
+		raw, e := readBoundedFile(filepath.Join(state, "plan.json"), 16<<10)
+		if e != nil {
+			return e
+		}
+		var plan HostWafPlan
+		if e = decodeExecutorParameters(raw, &plan); e != nil {
+			return e
+		}
+		a, e := hostNetworkAgent()
+		if e != nil {
+			return e
+		}
+		if a.Identity.AssetID != plan.AssetID {
+			return errors.New("rollback state belongs to another asset")
+		}
+		report, e := rollbackBoundNginxState(state, plan, runNginx)
+		if e != nil {
+			return e
+		}
+		return publishHostWafRollback(report, out)
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+
+	if err := executorPlatform(); err != nil {
+		return err
+	}
 	if err := executorTrustedDirectory(transaction, true); err != nil {
 		return err
 	}
@@ -442,6 +564,9 @@ func runHostWafRollback(transaction string, out io.Writer) error {
 	if err = writePrivate(reportPath, report); err != nil {
 		return err
 	}
+	return publishHostWafRollback(report, out)
+}
+func publishHostWafRollback(report map[string]any, out io.Writer) error {
 	a, err := hostNetworkAgent()
 	if err != nil {
 		return err
@@ -450,4 +575,25 @@ func runHostWafRollback(transaction string, out io.Writer) error {
 		return errors.New("nginx restored locally; platform report unavailable, retry the same rollback to publish")
 	}
 	return json.NewEncoder(out).Encode(report)
+}
+
+// SSH jobs use umask 077. Public roots must still be readable by the unprivileged
+// WAF process through its read-only bind mount; no private key is written here.
+func writeHostWafTrustFile(path string, body []byte) error {
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+	if err != nil {
+		return err
+	}
+	_, err = file.Write(body)
+	if err == nil {
+		err = file.Chmod(0644)
+	}
+	if err == nil {
+		err = file.Sync()
+	}
+	err = errors.Join(err, file.Close())
+	if err != nil {
+		return err
+	}
+	return syncParent(path)
 }

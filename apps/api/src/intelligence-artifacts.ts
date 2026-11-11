@@ -1,6 +1,6 @@
 import {AsyncLocalStorage,AsyncResource} from 'node:async_hooks';import {createHash,randomUUID} from 'node:crypto';import {createReadStream,createWriteStream} from 'node:fs';import {mkdir,readdir,lstat,open,link,unlink} from 'node:fs/promises';import {join,resolve} from 'node:path';import {PassThrough,Transform} from 'node:stream';import {pipeline} from 'node:stream/promises';import {once} from 'node:events';import {createGzip} from 'node:zlib';import {HttpException} from '@nestjs/common';
 export const intelligenceNormalizerVersion='selfguard-intelligence-v7';
-export type RawArtifact={sha256:string;size:number;encoding:'GZIP_JSON'|'ZIP';payloadSha256:string};
+export type RawArtifact={sha256:string;size:number;encoding:'GZIP_JSON'|'GZIP_XML'|'ZIP';payloadSha256:string};
 type RawWriter={write:(part:Uint8Array)=>Promise<void>;finish:()=>Promise<RawArtifact>;abort:()=>Promise<void>};
 type RawContext={root:string;reservedBytes:number;artifact?:RawArtifact;manifest:Record<string,unknown>;writer?:RawWriter;aborts:Set<(error:Error)=>void>;cancelled?:Error};
 const context=new AsyncLocalStorage<RawContext>();
@@ -10,7 +10,7 @@ async function ensure(root:string){await mkdir(join(root,'objects'),{recursive:t
 async function fileHash(path:string){const hash=createHash('sha256');for await(const part of createReadStream(path))hash.update(part);return hash.digest('hex')}
 async function missingOkay(path:string){try{await unlink(path)}catch(error){if((error as NodeJS.ErrnoException).code!=='ENOENT')throw error}}
 async function rawWriter(scope:RawContext,encoding:RawArtifact['encoding']):Promise<RawWriter>{
- await ensure(scope.root);const partial=join(scope.root,'tmp',randomUUID()+'.partial'),input=new PassThrough({highWaterMark:65536}),compress=encoding==='GZIP_JSON'?createGzip():new PassThrough(),hash=createHash('sha256'),payloadHash=createHash('sha256');let size=0,error:Error|undefined,finished=false;
+ await ensure(scope.root);const partial=join(scope.root,'tmp',randomUUID()+'.partial'),input=new PassThrough({highWaterMark:65536}),compress=encoding!=='ZIP'?createGzip():new PassThrough(),hash=createHash('sha256'),payloadHash=createHash('sha256');let size=0,error:Error|undefined,finished=false;
  const counted=new Transform({transform(part,_encoding,callback){size+=part.length;if(size>scope.reservedBytes)return callback(Error('原始数据超过预留空间上限'));hash.update(part);callback(null,part)}}),output=createWriteStream(partial,{flags:'wx',mode:0o600}),completion=pipeline(input,compress,counted,output);completion.catch(reason=>{error=reason});
  return {
   async write(part){if(error)throw error;payloadHash.update(part);if(!input.write(part))await once(input,'drain');if(error)throw error},
@@ -35,7 +35,7 @@ export async function* captureRawChunks(chunks:AsyncIterable<Uint8Array>,encodin
  const scope=context.getStore();if(!scope){yield* chunks;return}if(scope.writer)throw Error('一次快照不能混合多个原始数据包');const writer=scope.writer=await rawWriter(scope,encoding);let complete=false;
  try{for await(const part of chunks){await writer.write(part);yield part}scope.artifact=await writer.finish();complete=true}finally{if(!complete)await writer.abort()}
 }
-export async function captureRawBuffer(bytes:Buffer){async function* chunks(){yield bytes}for await(const _ of captureRawChunks(chunks())){}}
+export async function captureRawBuffer(bytes:Buffer,encoding:RawArtifact['encoding']='GZIP_JSON'){async function* chunks(){yield bytes}for await(const _ of captureRawChunks(chunks(),encoding)){}}
 export async function intelligenceArtifactUsage(root=intelligenceArtifactRoot()){
  await ensure(root);let bytes=0,objects=0,partialBytes=0;
  for(const directory of ['objects','tmp'])for(const name of await readdir(join(root,directory))){const info=await lstat(join(root,directory,name));if(info.isFile()){bytes+=info.size;if(directory==='objects')objects++;else partialBytes+=info.size}}

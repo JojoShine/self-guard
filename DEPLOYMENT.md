@@ -2,7 +2,7 @@
 
 ## 已确认方案
 
-2026-11-01 用户确认：PostgreSQL 随栈部署；前端以版本化静态文件由宿主机 Nginx 提供；后端为镜像。另有自研 WAF 辅助组件镜像，用于规则兼容性检查和节点能力，不在本次部署中接管现有站点。
+2026-11-01 用户确认：PostgreSQL 随栈部署；前端以版本化静态文件由宿主机 Nginx 提供；后端为镜像。2026-11-11用户确认移除不再需要的自研WAF运行组件；当前仅交付平台后端、静态前端、随栈PostgreSQL与备份。历史记录保留。
 
 - 业务/仓库：`self-guard` / 私有 `JojoShine/self-guard`。
 - 目标：tbtparent，Ubuntu22.04 amd64；入口 `https://tbtparent.me/self-guard/`。
@@ -16,13 +16,13 @@
 
 ## 发布与产物
 
-CI 对锁文件安装依赖，构建带 `runtime` 目标的后端及WAF辅助镜像；前端使用 `BASE_PATH=/self-guard` 构建。主分支在隔离PostgreSQL验证角色准备、迁移及重复运行、初始化幂等、真实健康、运行权限、持久化重启、Nginx静态/API/健康完整链路后发布候选镜像。
+CI 对锁文件安装依赖，构建带 `runtime` 目标的后端镜像；前端使用 `BASE_PATH=/self-guard` 构建。主分支在隔离PostgreSQL验证角色准备、迁移及重复运行、初始化幂等、真实健康、运行权限、持久化重启、Nginx静态/API/健康完整链路后发布候选镜像。
 
 `vX.Y.Z` 标签只提升该提交已通过main验收的镜像和静态压缩包，不重新构建。版本不可覆盖。Release提供：
 
 - `self-guard-<version>-deploy.tar.gz`：完整生产Compose、环境示例、Nginx片段、数据库角色准备、备份脚本和本文。
 - `self-guard-web.tar.gz`：顶层目录 `self-guard/`，含已构建前端。
-- `release-manifest.json`：源码提交、版本、确认模式、BASE_PATH、后端/WAF/数据库准确镜像摘要、静态文件SHA-256。
+- `release-manifest.json`：源码提交、版本、确认模式、BASE_PATH、后端/数据库准确镜像摘要、静态文件SHA-256。
 - `acceptance.json`：对应候选产物的隔离验收结果。
 
 GHCR镜像为私有，部署前核对具备读取当前仓库包权限的只读凭据；通过标准输入登录，勿把密码写进命令或提交到仓库。保留上一版本清单、配置及静态产物。
@@ -33,7 +33,7 @@ GHCR镜像为私有，部署前核对具备读取当前仓库包权限的只读�
 2. 生成独立随机数据库管理、迁移、运行密码，分别存储在`secrets/db-admin-password`、`db-migrator-password`、`db-runtime-password`。文件0600，PostgreSQL容器用户999可读。管理秘密只挂载到数据库初始化流程。
 3. 创建`secrets/pgpass`（0600）用于备份的运行角色：`postgres:5432:selfguard:selfguard_runtime:<运行密码>`。它是秘密，不能写入文档、命令行或日志。
 4. 从`.env.prod.example`制作`.env.prod`（0600），按发布清单填写全部镜像摘要和连接。`DATABASE_URL`仅运行角色；`MIGRATION_DATABASE_URL`仅迁移角色；空BASE_PATH也须显式填写，本方案固定`/self-guard`。
-5. 准备`data/intelligence`、`data/agent-artifacts`归属1000:1000，`data/waf`归属10001:10001。Agent制品和情报原始文件需要与数据库目录配套；数据库中有目录不代表对应文件已存在。
+5. 准备`data/intelligence`、`data/agent-artifacts`归属1000:1000。Agent制品和情报原始文件需要与数据库目录配套；数据库中有目录不代表对应文件已存在。
 6. 加密密钥、任务签名密钥、Agent发行公钥及组件令牌使用独立受限配置。迁移现有加密记录时，保留相应加密密钥；不得临时生成新密钥导致现有连接/证书无法解密。签名私钥不进入前端或Agent下载包。
 
 数据库初始化入口只在空卷执行：创建`selfguard_bootstrap`管理账号、受限`selfguard_migrator`和`selfguard_runtime`，将public schema交给迁移角色；运行角色只有所需DML、序列读取和迁移历史只读权限。迁移账号拥有本数据库内创建schema所需的CREATE权限，但没有全局CREATEDB或CREATEROLE权限，不能创建其他数据库或角色；运行账号不能建表或修改迁移历史。已有卷不重复初始化，不通过删卷修复故障。
@@ -55,7 +55,7 @@ docker compose --env-file .env.prod -f compose.prod.yaml run --rm --no-deps migr
 迁移现有清理后的数据时，先备份，在隔离空目标库使用迁移角色恢复；恢复命令不带原所有者和权限，再执行迁移以核对历史及运行角色授权。不要在已有业务库上重复恢复或清空数据。数据、原始情报、Agent制品和加密密钥须一起核对，单独恢复数据库不算完成。
 
 ```sh
-docker compose --env-file .env.prod -f compose.prod.yaml up -d --no-build --wait app waf backup
+docker compose --env-file .env.prod -f compose.prod.yaml up -d --no-build --wait app backup
 docker compose --env-file .env.prod -f compose.prod.yaml ps
 ```
 
@@ -74,8 +74,13 @@ docker compose --env-file .env.prod -f compose.prod.yaml ps
 
 ## 备份、维护与恢复
 
-备份侧车只使用运行角色读取数据库并写平台备份状态，包含情报原始对象及清单；在平台备份设置中开启周期。部署前另外执行一次`backup`服务中的`/scripts/scheduled-backup.sh --once`并核验退出码。敏感`.env.prod`、密钥、Agent制品目录和WAF状态另作受限备份，文件权限0600，不放在静态目录。数据库dump和依赖文件须定期隔离还原核对。
+备份侧车只使用运行角色读取数据库并写平台备份状态，包含情报原始对象及清单；在平台备份设置中开启周期。部署前另外执行一次`backup`服务中的`/scripts/scheduled-backup.sh --once`并核验退出码。敏感`.env.prod`、密钥、Agent制品目录另作受限备份，文件权限0600，不放在静态目录。数据库dump和依赖文件须定期隔离还原核对。
 
 默认保留7个周期备份，可在平台调整为1–30个。日志按单文件10MiB、3份轮转；监控`/opt/self-guard`和Docker数据盘空间，维护宿主机证书续期。PostgreSQL主版本升级需单独备份和恢复演练，不随应用自动升级主版本。
 
 升级前保留当前配置、release-manifest、镜像/静态版本和已验证备份；先迁移成功再启动新应用。入口验收失败时恢复上一静态链接和上一组镜像/配置，重新检查健康与旧业务。应用回滚不自动回滚数据库，不删除数据库卷；破坏性迁移另行安排恢复窗口。单实例替换可能有短暂中断，本方案不宣称零停机或高可用。
+
+
+## 移除历史WAF（2026-11-11）
+
+当前生产Compose和CI不再创建或依赖WAF服务，不要求WAF_IMAGE/WAF_TOKEN；运行规则发布保持关闭。旧版本导出工具仍可按旧清单取得WAF镜像，用于审计/恢复，不让新版发布重新安装它。仅在新版本健康和入口验收通过后，移除本项目旧WAF容器及已归档的data/waf专用状态；保留可恢复的旧清单/镜像记录。删除旧WAF镜像前核对所有容器引用，只删除未使用的本项目镜像，不执行全机prune，不删除历史平台记录或其他站点Nginx。宿主PG14业务库与原Agent配置不在此次升级范围。

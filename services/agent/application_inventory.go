@@ -6,11 +6,13 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"debug/buildinfo"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -45,12 +47,15 @@ type ApplicationCollection struct {
 	Inputs   []ApplicationInputStatus `json:"inputs"`
 }
 type applicationReader struct {
-	root          *os.Root
-	allowed       string
-	deadline      time.Time
-	metadataBytes int64
-	rows          []ApplicationComponent
-	outputBytes   int
+	root           *os.Root
+	allowed        string
+	deadline       time.Time
+	metadataBytes  int64
+	rows           []ApplicationComponent
+	outputBytes    int
+	archiveEntries int
+	nestedArchives int
+	archiveBytes   int64
 }
 
 var installedSemver = regexp.MustCompile(`^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$`)
@@ -342,38 +347,187 @@ func (r *applicationReader) artifact(path string) (*os.File, int64, string, erro
 	}
 	return f, info.Size(), hex.EncodeToString(hash.Sum(nil)), nil
 }
-func (r *applicationReader) jar(path string) error {
-	f, size, sha, err := r.artifact(path)
+func (r *applicationReader) jar(filePath string) error {
+	f, size, sha, err := r.artifact(filePath)
 	if err != nil {
 		return err
 	}
 	defer f.Close()
-	archive, err := zip.NewReader(f, size)
-	if err != nil || len(archive.File) > 10000 {
-		return errors.New("JAR归档无效或超过10000项预算")
+	before, err := f.Stat()
+	if err != nil {
+		return errors.New("JAR制品状态不可读")
+	}
+	start, output := len(r.rows), r.outputBytes
+	result := r.jarArchive(f, size, filePath, sha, 0)
+	// Confirm the digest still describes the parsed file, including its pathname.
+	hash := sha256.New()
+	buffer := make([]byte, 64<<10)
+	section := io.NewSectionReader(f, 0, size)
+	for {
+		if err = r.budget(); err != nil {
+			break
+		}
+		n, readErr := section.Read(buffer)
+		hash.Write(buffer[:n])
+		if readErr == io.EOF {
+			break
+		}
+		if readErr != nil {
+			err = readErr
+			break
+		}
+	}
+	after, statErr := f.Stat()
+	relative, _ := filepath.Rel(r.allowed, filePath)
+	current, pathErr := r.root.Stat(relative)
+	if err != nil || statErr != nil || pathErr != nil || !os.SameFile(before, current) || before.Size() != after.Size() || !before.ModTime().Equal(after.ModTime()) || hex.EncodeToString(hash.Sum(nil)) != sha || safePath(r.allowed, filePath) != nil {
+		r.rows, r.outputBytes = r.rows[:start], output
+		return errors.New("JAR制品在读取期间变化或校验超过预算")
+	}
+	return result
+}
+
+// Count central-directory records before archive/zip allocates an entry per record.
+// ZIP64 and split archives are outside this bounded inventory profile.
+func (r *applicationReader) jarDirectory(source io.ReaderAt, size int64) error {
+	tailSize := int64(65557)
+	if size < tailSize {
+		tailSize = size
+	}
+	tail := make([]byte, int(tailSize))
+	if _, err := source.ReadAt(tail, size-tailSize); err != nil {
+		return errors.New("JAR目录不可读")
+	}
+	end := -1
+	for i := len(tail) - 22; i >= 0; i-- {
+		if binary.LittleEndian.Uint32(tail[i:]) == 0x06054b50 {
+			// archive/zip selects the latest signature, even with trailing bytes.
+			// Never skip it and validate a different, earlier directory instead.
+			if i+22+int(binary.LittleEndian.Uint16(tail[i+20:])) != len(tail) {
+				return errors.New("JAR结束标记含尾随数据、截断或歧义")
+			}
+			end = i
+			break
+		}
+	}
+	if end < 0 {
+		return errors.New("JAR目录无效")
+	}
+	record := tail[end:]
+	count := int(binary.LittleEndian.Uint16(record[10:]))
+	directorySize := int64(binary.LittleEndian.Uint32(record[12:]))
+	offset := int64(binary.LittleEndian.Uint32(record[16:]))
+	if binary.LittleEndian.Uint32(record[4:]) != 0 || int(binary.LittleEndian.Uint16(record[8:])) != count || count == 65535 || offset == 0xffffffff || directorySize == 0xffffffff || r.archiveEntries+count > 10000 {
+		return errors.New("JAR目录不受支持或累计超过10000项预算")
+	}
+	if directorySize > int64(32<<20)-r.metadataBytes {
+		return errors.New("JAR目录元数据超过累计32MiB预算")
+	}
+	stop := size - tailSize + int64(end)
+	cursor := stop - directorySize
+	if cursor < offset || cursor < 0 {
+		return errors.New("JAR目录偏移无效")
+	}
+	// archive/zip may fall back to the unadjusted offset for prefixed ZIPs.
+	// Refuse two plausible directories so it cannot parse an unchecked one.
+	if cursor > offset {
+		signature := make([]byte, 4)
+		if _, err := source.ReadAt(signature, offset); err != nil || binary.LittleEndian.Uint32(signature) == 0x02014b50 {
+			return errors.New("JAR目录偏移存在歧义")
+		}
+	}
+	header := make([]byte, 46)
+	for n := 0; cursor < stop; n++ {
+		if err := r.budget(); err != nil {
+			return err
+		}
+		if n >= count || cursor+46 > stop {
+			return errors.New("JAR目录数量冲突")
+		}
+		if _, err := source.ReadAt(header, cursor); err != nil || binary.LittleEndian.Uint32(header) != 0x02014b50 {
+			return errors.New("JAR目录损坏")
+		}
+		cursor += 46 + int64(binary.LittleEndian.Uint16(header[28:])) + int64(binary.LittleEndian.Uint16(header[30:])) + int64(binary.LittleEndian.Uint16(header[32:]))
+		if cursor > stop || cursor == stop && n+1 != count {
+			return errors.New("JAR目录数量冲突")
+		}
+	}
+	if cursor != stop || count > 0 && directorySize == 0 {
+		return errors.New("JAR目录大小冲突")
+	}
+	r.archiveEntries += count
+	r.metadataBytes += directorySize
+	return nil
+}
+
+func (r *applicationReader) jarArchive(source io.ReaderAt, size int64, sourcePath, sha string, depth int) error {
+	if err := r.budget(); err != nil {
+		return err
+	}
+	if depth > 4 {
+		return errors.New("JAR嵌套超过4层预算")
+	}
+	if err := r.jarDirectory(source, size); err != nil {
+		return err
+	}
+	archive, err := zip.NewReader(source, size)
+	if err != nil {
+		return errors.New("JAR归档无效或损坏")
+	}
+	seen := map[string]bool{}
+	for _, entry := range archive.File {
+		if err := r.budget(); err != nil {
+			return err
+		}
+		name := strings.TrimSuffix(entry.Name, "/")
+		if name == "" || !utf8.ValidString(name) || path.Clean(name) != name || strings.HasPrefix(name, "/") || name == ".." || strings.HasPrefix(name, "../") || strings.ContainsAny(name, "\\!\x00\r\n") || seen[name] || entry.Mode()&os.ModeSymlink != 0 {
+			return errors.New("JAR条目路径无效、重复或存在链接")
+		}
+		seen[name] = true
 	}
 	var incomplete error
 	found := false
+	coordinates := map[string]string{}
+	coordinateRows := map[string][]int{}
 	for _, entry := range archive.File {
-		if strings.HasSuffix(entry.Name, ".jar") {
-			incomplete = errors.New("JAR含嵌套制品，当前输入尚未覆盖其内部组件")
+		if err := r.budget(); err != nil {
+			return err
 		}
-		if !strings.HasPrefix(entry.Name, "META-INF/maven/") || !strings.HasSuffix(entry.Name, "/pom.properties") {
+		lower := strings.ToLower(entry.Name)
+		if strings.HasSuffix(lower, ".jar") || strings.HasSuffix(lower, ".war") || strings.HasSuffix(lower, ".zip") {
+			r.nestedArchives++
+			if r.nestedArchives > 100 {
+				return errors.New("JAR嵌套制品超过100项预算")
+			}
+			if depth >= 4 {
+				incomplete = errors.New("JAR嵌套超过4层预算")
+				continue
+			}
+			b, e := r.jarEntry(entry, true)
+			if e == nil {
+				e = r.jarArchive(bytes.NewReader(b), int64(len(b)), sourcePath+"!"+entry.Name, applicationSHA(b), depth+1)
+			}
+			if e != nil {
+				incomplete = e
+			}
+			continue
+		}
+		metadataPath := entry.Name
+		for _, prefix := range []string{"BOOT-INF/classes/", "WEB-INF/classes/"} {
+			metadataPath = strings.TrimPrefix(metadataPath, prefix)
+		}
+		if !strings.HasPrefix(metadataPath, "META-INF/maven/") || !strings.HasSuffix(metadataPath, "/pom.properties") {
 			continue
 		}
 		found = true
-		if entry.UncompressedSize64 > 65536 {
-			return errors.New("JAR软件坐标超过64KiB预算")
-		}
-		reader, e := entry.Open()
+		b, e := r.jarEntry(entry, false)
 		if e != nil {
-			return errors.New("JAR坐标不可读")
+			incomplete = e
+			continue
 		}
-		b, e := io.ReadAll(io.LimitReader(reader, 65537))
-		closeErr := reader.Close()
-		r.metadataBytes += int64(len(b))
-		if e != nil || closeErr != nil || len(b) > 65536 || r.metadataBytes > 32<<20 {
-			return errors.New("JAR坐标读取、CRC或预算校验失败")
+		if !utf8.Valid(b) {
+			incomplete = errors.New("JAR坐标不是有效UTF-8")
+			continue
 		}
 		fields := map[string]string{}
 		for _, line := range strings.Split(string(b), "\n") {
@@ -387,23 +541,96 @@ func (r *applicationReader) jar(path string) error {
 				return errors.New("JAR坐标采用尚未完整解释的属性转义")
 			}
 			if key == "groupId" || key == "artifactId" || key == "version" {
-				if fields[key] != "" {
+				if _, exists := fields[key]; exists {
 					return errors.New("JAR坐标字段重复")
 				}
 				fields[key] = strings.TrimSpace(value)
 			}
 		}
-		if fields["groupId"] == "" || fields["artifactId"] == "" || fields["version"] == "" {
+		parts := strings.Split(metadataPath, "/")
+		if len(parts) != 5 || parts[2] != fields["groupId"] || parts[3] != fields["artifactId"] || !applicationToken.MatchString(fields["groupId"]) || !applicationToken.MatchString(fields["artifactId"]) || strings.ContainsAny(fields["groupId"]+fields["artifactId"], ":/\\") || fields["version"] == "" {
 			return errors.New("JAR缺少完整Maven坐标")
 		}
-		if e = r.append("Maven", fields["groupId"]+":"+fields["artifactId"], fields["version"], path+"!"+entry.Name, sha); e != nil {
+		identity := fields["groupId"] + ":" + fields["artifactId"]
+		if previous, exists := coordinates[identity]; exists && previous != fields["version"] {
+			// Incomplete collection does not invalidate a reported installed row.
+			// Retract this archive's ambiguous identity, preserving nested evidence.
+			positions := coordinateRows[identity]
+			dropped := 0
+			kept := r.rows[:0]
+			for index, row := range r.rows {
+				if dropped < len(positions) && index == positions[dropped] {
+					encoded, _ := json.Marshal(row)
+					r.outputBytes -= len(encoded)
+					dropped++
+					continue
+				}
+				kept = append(kept, row)
+			}
+			r.rows = kept
+			return errors.New("JAR同一Maven坐标包含冲突版本")
+		}
+		coordinates[identity] = fields["version"]
+		if e = r.append("Maven", identity, fields["version"], sourcePath+"!"+entry.Name, sha); e != nil {
 			return e
 		}
+		coordinateRows[identity] = append(coordinateRows[identity], len(r.rows)-1)
 	}
 	if !found {
-		return errors.New("JAR没有Maven坐标，无法仅凭文件名确认软件版本")
+		incomplete = errors.New("JAR没有Maven坐标，无法仅凭文件名确认软件版本")
 	}
 	return incomplete
+}
+
+func (r *applicationReader) jarEntry(entry *zip.File, nested bool) ([]byte, error) {
+	if err := r.budget(); err != nil {
+		return nil, err
+	}
+	limit, remaining := int64(65536), int64(32<<20)-r.metadataBytes
+	if nested {
+		limit, remaining = 16<<20, int64(256<<20)-r.archiveBytes
+	}
+	if remaining < limit {
+		limit = remaining
+	}
+	if limit < 0 || entry.UncompressedSize64 > uint64(limit) {
+		return nil, errors.New("JAR解码超过坐标64KiB/累计32MiB或嵌套制品16MiB/累计256MiB预算")
+	}
+	reader, err := entry.Open()
+	if err != nil {
+		return nil, errors.New("JAR条目不可读")
+	}
+	defer reader.Close()
+	// Exact allocation avoids bytes.Buffer growth retaining twice the bytes at
+	// each recursive level; at most four 16MiB nested buffers remain live.
+	b := make([]byte, int(entry.UncompressedSize64))
+	for offset := 0; offset < len(b); {
+		if err := r.budget(); err != nil {
+			return nil, err
+		}
+		end := offset + (32 << 10)
+		if end > len(b) {
+			end = len(b)
+		}
+		n, readErr := io.ReadFull(reader, b[offset:end])
+		if nested {
+			r.archiveBytes += int64(n)
+		} else {
+			r.metadataBytes += int64(n)
+		}
+		offset += n
+		if readErr != nil {
+			return nil, errors.New("JAR条目读取、大小或CRC校验失败")
+		}
+	}
+	if err := r.budget(); err != nil {
+		return nil, err
+	}
+	var extra [1]byte
+	if n, err := reader.Read(extra[:]); n != 0 || err != io.EOF {
+		return nil, errors.New("JAR条目大小或CRC校验失败")
+	}
+	return b, nil
 }
 func (r *applicationReader) goBinary(path string) error {
 	f, _, sha, err := r.artifact(path)

@@ -8,6 +8,9 @@ import (
 )
 
 type PolicyConfig struct {
+	InstanceID    string            `json:"instanceId,omitempty"`
+	Engines       []string          `json:"engines,omitempty"`
+	Operations    []string          `json:"operations,omitempty"`
 	Applicability RuleApplicability `json:"applicability,omitempty"`
 	Exceptions    []RuleException   `json:"exceptions,omitempty"`
 	Path          string            `json:"path"`
@@ -64,7 +67,7 @@ func (a *Agent) applyPolicyForAssetAt(rules []PolicyRule, asset PolicyAsset, now
 				r.Config.Field = "message"
 			}
 			if databaseLogRule(r.Config) {
-				if safePath(a.Config.AllowedRoot, r.Config.Path) == nil && r.Config.Threshold >= 1 && r.Config.Threshold <= 1000 && r.Config.WindowSeconds >= 1 && r.Config.WindowSeconds <= 86400 && (r.Config.Service == "mysql" || r.Config.Service == "postgresql" || r.Config.Service == "audit-json") && (r.Config.Type != "DATABASE_CLEARTEXT" || r.Config.Service == "audit-json") {
+				if safePath(a.Config.AllowedRoot, r.Config.Path) == nil && r.Config.Threshold >= 1 && r.Config.Threshold <= 1000 && r.Config.WindowSeconds >= 1 && r.Config.WindowSeconds <= 86400 && (r.Config.Service == "mysql" || r.Config.Service == "postgresql" || r.Config.Service == "audit-json") && (r.Config.Type != "DATABASE_CLEARTEXT" || r.Config.Service == "audit-json") && ((r.Config.Type != "DATABASE_ACTIVITY" && r.Config.Type != "DATABASE_ACCESS") || (r.Config.InstanceID != "" && r.Config.Service == "audit-json")) {
 					a.LogRules = append(a.LogRules, r)
 				} else {
 					a.PolicyFindings = append(a.PolicyFindings, databaseCoverage(r, r.Config.Path, "规则路径未通过本地授权边界或规则参数不受支持；未执行读取"))
@@ -79,11 +82,17 @@ func (a *Agent) applyPolicyForAssetAt(rules []PolicyRule, asset PolicyAsset, now
 }
 func (a *Agent) policy() {
 	var snapshot struct {
-		Rules []PolicyRule `json:"rules"`
-		Asset PolicyAsset  `json:"asset"`
+		Rules           []PolicyRule `json:"rules"`
+		DatabaseSources []struct {
+			InstanceID string `json:"instanceId"`
+			Engine     string `json:"engine"`
+			Path       string `json:"path"`
+			Service    string `json:"service"`
+		} `json:"databaseSources"`
+		Asset PolicyAsset `json:"asset"`
 	}
 	path := filepath.Join(a.Config.StateDir, "policy.json")
-	if a.request("GET", "/agent/policy?capabilities=data-security-v1", a.Identity.Token, nil, &snapshot) == nil {
+	if a.request("GET", "/agent/policy?capabilities=data-security-v1,data-security-v2", a.Identity.Token, nil, &snapshot) == nil {
 		if writePrivate(path, snapshot) != nil {
 			return
 		}
@@ -91,6 +100,19 @@ func (a *Agent) policy() {
 		return
 	}
 	a.applyPolicyForAssetAt(snapshot.Rules, snapshot.Asset, time.Now())
+	for i, source := range snapshot.DatabaseSources {
+		if i >= 20 {
+			break
+		}
+		rule := PolicyRule{ID: "database-collection:" + source.InstanceID + ":" + source.Path, Config: PolicyConfig{Type: "DATABASE_COLLECTION", InstanceID: source.InstanceID, Path: source.Path, Service: source.Service, Engines: []string{source.Engine}}}
+		if source.InstanceID != "" && safePath(a.Config.AllowedRoot, source.Path) == nil && databaseFormat(source.Service) {
+   filtered:=a.LogRules[:0];for _,existing:=range a.LogRules{if existing.Config.InstanceID==source.InstanceID&&existing.Config.Path==source.Path{continue};filtered=append(filtered,existing)};a.LogRules=filtered
+			a.LogRules = append(a.LogRules, rule)
+		} else {
+			a.PolicyFindings = append(a.PolicyFindings, databaseCoverage(rule, source.Path, "独立审计来源未通过本地采集授权"))
+		}
+	}
+
 }
 func matches(body, pattern string, threshold int) int {
 	if threshold < 1 {

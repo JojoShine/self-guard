@@ -23,9 +23,11 @@ services:
     working_dir: /app
     volumes:
       - ./apps/api:/app
+      - ./scripts/sync-probe-library.cjs:/app/scripts/sync-probe-library.cjs:ro
       - ./.artifacts/bin:/opt/selfguard:ro
       - ./.artifacts/runtime:/runtime:ro
       - ./.artifacts/intelligence-artifacts:/intelligence-artifacts
+      - ./.artifacts/access-evidence:/var/lib/selfguard/access-evidence
     environment:
       DATABASE_URL: postgresql://selfguard:${POSTGRES_PASSWORD}@postgres:5432/selfguard
       ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@selfguard.local}
@@ -44,6 +46,14 @@ services:
       HOST_WAF_IMAGE: ${HOST_WAF_IMAGE:-}
       WAF_TEST_URL: http://waf:8082
       INTELLIGENCE_HTTPS_PROXY: ${INTELLIGENCE_HTTPS_PROXY:-}
+      INTELLIGENCE_PROXY_DNS_OVER_HTTPS: ${INTELLIGENCE_PROXY_DNS_OVER_HTTPS:-false}
+      NUCLEI_BINARY: /usr/local/bin/nuclei
+      PROBE_RULE_LIBRARY_DIR: /intelligence-artifacts/probe-rule-library
+      PROBE_RULE_LIBRARY_SOURCE: /intelligence-artifacts/probe-rule-library-source.json
+      PROBE_RULE_DOWNLOAD_DIR: /intelligence-artifacts/probe-rule-downloads
+      PROBE_RULE_LIBRARY_UPDATE_SCRIPT: /app/scripts/sync-probe-library.cjs
+      ACCESS_EVIDENCE_DIR: /var/lib/selfguard/access-evidence
+      ACCESS_EVIDENCE_MAX_BYTES: ${ACCESS_EVIDENCE_MAX_BYTES:-}
       INTELLIGENCE_ARTIFACT_DIR: /intelligence-artifacts
       INTELLIGENCE_ARTIFACT_QUOTA_BYTES: ${INTELLIGENCE_ARTIFACT_QUOTA_BYTES:-}
       WAF_DEVELOPMENT: 'true'
@@ -79,7 +89,8 @@ services:
       - ./scripts/scheduled-backup.sh:/scripts/scheduled-backup.sh:ro
       - ./scripts/verify-intelligence-backup.sh:/scripts/verify-intelligence-backup.sh:ro
       - ./.artifacts/backups:/backups
-      - ./.artifacts/intelligence-artifacts:/intelligence-artifacts:ro
+      - ./.artifacts/intelligence-artifacts:/intelligence-artifacts
+      - ./.artifacts/access-evidence:/var/lib/selfguard/access-evidence:ro
     command: [sh, /scripts/scheduled-backup.sh]
     depends_on:
       postgres:

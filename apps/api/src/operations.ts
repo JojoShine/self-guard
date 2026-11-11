@@ -36,15 +36,14 @@ export class OperationsController {
       by: ["business"],
       _count: { _all: true },
     });
-    return {
-      items: groups
-        .map((g) => ({
-          business: g.business || "未分组",
-          assetCount: g._count._all,
-        }))
-        .sort((a, b) => b.assetCount - a.assetCount),
-    };
+    const counts=new Map(groups.map(group=>[group.business,group._count._all]));
+    const allowedNames=restricted(req.user)?[...new Set<string>([...(req.user.dataScope.businesses||[]),...groups.flatMap(group=>group.business?[group.business]:[])])]:null;
+    const registered=await this.db.businessGroup.findMany({where:allowedNames?{name:{in:allowedNames}}:{},select:{name:true}});
+    // Empty registered groups must remain selectable before their first asset is assigned.
+    for(const group of registered)if(!counts.has(group.name))counts.set(group.name,0);
+    return {items:[...counts].map(([business,assetCount])=>({business:business||"未分组",assetCount})).sort((a,b)=>b.assetCount-a.assetCount||a.business.localeCompare(b.business))};
   }
+
   @Get("trends") async trends(@Req() req:any) {
     const scoped=restricted(req.user);
     const ids=scoped?(await this.db.asset.findMany({where:assetScope(req.user),select:{id:true}})).map(a=>a.id):[];

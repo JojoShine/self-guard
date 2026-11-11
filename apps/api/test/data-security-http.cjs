@@ -3,7 +3,7 @@ async function main(){
  const base=process.env.TEST_API_URL;assert.ok(base&&base.includes(':4400'));
  const login=await fetch(base+'/auth/login',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({email:process.env.ADMIN_EMAIL||'admin@selfguard.local',password:process.env.ADMIN_PASSWORD})});assert.ok(login.ok);const token=(await login.json()).token;
  async function call(path,body,auth=token){const r=await fetch(base+path,{method:body?'POST':'GET',headers:{authorization:'Bearer '+auth,'content-type':'application/json'},...(body?{body:JSON.stringify(body)}:{})});const v=await r.json();assert.ok(r.ok,path+': '+JSON.stringify(v));return v}
- const catalog=await call('/rule-tools/catalog/database');assert.equal(catalog.items.length,7);
+ const catalog=await call('/rule-tools/catalog/database');assert.ok(catalog.items.length>=25);
  const asset=await call('/assets',{hostname:'isolated-db',os:'linux'});
  const rule=await call('/rules',{name:'数据库疑似口令爆破',kind:'LOG',severity:'HIGH',enabled:true,config:{type:'DATABASE_AUTH',service:'postgresql',path:'/db/log.json',threshold:3,windowSeconds:60,applicability:{assetIds:[asset.id]}}});
  const lines=Array.from({length:3},(_,i)=>JSON.stringify({timestamp:new Date(Date.now()-i*1000).toISOString(),remote_host:'192.0.2.10',remote_port:'54000',user:'probe-'+i,dbname:'app',state_code:'28P01',message:'password=must-not-retain'}));

@@ -1,0 +1,27 @@
+# Merge into the vendor's complete suricata.yaml; this is not a complete config.
+# Run on a mirror/TAP interface in IDS mode, never inline/NFQUEUE/IPS.
+outputs:
+  - eve-log:
+      enabled: yes
+      filetype: regular
+      filename: eve.json
+      threaded: false
+      types:
+        - alert:
+            payload: no
+            payload-printable: no
+            packet: no
+            tagged-packets: no
+        - http:
+            extended: no
+        - dns
+        - tls:
+            extended: no
+        - flow
+        - anomaly
+        - stats:
+            totals: yes
+            threads: no
+stats:
+  enabled: yes
+  interval: 8

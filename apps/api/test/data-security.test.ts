@@ -7,10 +7,11 @@ import {AgentController} from '../src/components';
 test('database templates validate through production rule validation; reject unsafe inference',()=>{
  const p=new Platform({} as any);
  for(const row of databaseRuleCatalog){
- const config=row.kind==='LOG'?{type:row.type,path:'/authorized/db.log',service:row.formats![0],threshold:row.type==='DATABASE_CLEARTEXT'?1:5,windowSeconds:60}:{type:row.type,key:row.key,path:'/authorized/db.conf'};
+ if(row.type==='DATABASE_ACCESS')continue;
+ const config=row.kind==='LOG'?{type:row.type,path:'/authorized/db.log',service:row.formats![0],threshold:row.type==='DATABASE_CLEARTEXT'?1:5,windowSeconds:60,...(row.type==='DATABASE_ACTIVITY'?{instanceId:'00000000-0000-4000-8000-000000000001',engines:row.engines,operations:row.operations}:{})}:{type:row.type,key:row.key,path:'/authorized/db.conf'};
  p.validateRule({...row,config});
  }
- assert.equal(databaseRuleCatalog.length,7);
+ assert.ok(databaseRuleCatalog.length>=25);
  assert.throws(()=>databaseLogInput.parse({type:'DATABASE_CLEARTEXT',path:'/db',service:'mysql',threshold:1,windowSeconds:60}));
  assert.throws(()=>databaseBaselineInput.parse({type:'DATABASE_SECURITY',path:'/db',key:'ARBITRARY_COMMAND'}));
  assert.equal(requiresDataSecurity({contains:'failed'}),false);

@@ -45,7 +45,19 @@ function FieldValue({name,value}:{name:string;value:unknown}){
  const entries=Object.entries(value as object).filter(([key])=>Object.hasOwn(names,key));
  return entries.length?<dl className="evidence-nested">{entries.map(([key,item])=><div key={key}><dt>{names[key]}</dt><dd><FieldValue name={key} value={item}/></dd></div>)}</dl>:<span className="evidence-secondary">{Array.isArray(value)?`${value.length} 条内容`:`${Object.keys(value as object).length} 个字段`}，可在下方完整字段表查看</span>;
 }
+function isRecord(value:unknown):value is Record<string,unknown>{return value!==null&&typeof value==='object'&&!Array.isArray(value)}
+function sensorEndpoint(ip:unknown,port:unknown){const address=typeof ip==='string'?ip:'未知';return typeof port==='number'?(address.includes(':')?'['+address+']':address)+':'+port:address}
+function SensorAlertEvidence({value}:{value:Record<string,unknown>}){
+ const metadata=isRecord(value.metadata)?value.metadata:{},alert=isRecord(metadata.alert)?metadata.alert:{};
+ return <div className="module-stack"><p>命中检测规则，不等于已确认入侵。平台仅产生告警，未执行阻断；关联资产是采集主机，目标归属仍需核对。</p><dl className="evidence-fields">
+  <div className="evidence-field"><dt>检测规则</dt><dd>{text(alert.signature)}</dd></div>
+  <div className="evidence-field"><dt>实际连接</dt><dd>{sensorEndpoint(value.sourceIp,value.sourcePort)} → {sensorEndpoint(value.destinationIp,value.destinationPort)}</dd></div>
+  <div className="evidence-field"><dt>采集方式</dt><dd>{value.mode==='REPLAY'?'离线回放，不能作为当前攻击证明':value.mode==='LIVE'?'实时采集记录':'未标记采集方式'}</dd></div>
+  <div className="evidence-field"><dt>发生时间</dt><dd>{timeLabel(value.occurredAt)}</dd></div>
+ </dl></div>;
+}
 function StructuredEvidence({value}:{value:Record<string,unknown>}){
+ if(value.assetRole==='SENSOR_HOST'&&value.eventType==='alert')return <SensorAlertEvidence value={value}/>;
  const fields=Object.keys(labels).filter(key=>Object.hasOwn(value,key));
  const hasWindow=Object.hasOwn(value,'from')||Object.hasOwn(value,'to');
  const conditions=Array.isArray(value.conditions)?value.conditions:undefined;
@@ -72,7 +84,7 @@ export function EvidenceView({value,title='证据与检查结果'}:{value:unknow
  <h3 className="evidence-heading">{title}</h3>
  {hidden?<p className="evidence-hidden">[已隐藏]</p>:empty?<p className="evidence-empty">暂无证据</p>:structured?<>
  {Array.isArray(parsed)?<ol className="evidence-records">{parsed.slice(0,50).map((item,index)=><li key={index}>{item&&typeof item==='object'&&!Array.isArray(item)?<StructuredEvidence value={item}/>:<p className="evidence-text">{simple(item)?text(item):'结构化内容，可在下方完整字段表查看。'}</p>}</li>)}{parsed.length>50&&<li className="evidence-secondary">其余 {parsed.length-50} 项可在完整原始字段中查看</li>}</ol>:<StructuredEvidence value={parsed as Record<string,unknown>}/>}
- <RecordFieldsTable value={parsed} labels={{...labels,version:'版本'}}/>
+ <details className="evidence-raw"><summary>技术字段与完整证据</summary><RecordFieldsTable value={parsed} labels={{...labels,version:'版本'}}/></details>
  </>:<p className="evidence-text">{text(parsed)}</p>}
  </section>;
 }

@@ -1,3 +1,6 @@
+import {GovernancePanel} from './GovernancePanel';
+import {FormDrawer} from './FormDrawer';
+import {RecordSelect} from './RecordSelect';
 import {managementOptions} from './management-options';
 import {AgentInstallationPanel} from './AgentInstallationPanel';
 import {paginationDefaults} from './pagination';
@@ -16,15 +19,18 @@ function TechnicalDetails({ value }: { value: unknown }) {
 
 export function ScopeEditor({record,onChanged}:{record:any;onChanged:()=>void}){
  const [open,setOpen]=useState(false),[error,setError]=useState(''),[busy,setBusy]=useState(false),[choices,setChoices]=useState<any>({assets:[],businesses:[]});const [f]=Form.useForm();
- async function edit(){setError('');setBusy(true);try{const options=await managementOptions();setChoices(options);f.setFieldsValue({...record.dataScope,businesses:record.dataScope?.businesses||[],assetIds:record.dataScope?.assetIds||[]});setOpen(true)}catch(e){setError((e as Error).message)}finally{setBusy(false)}}
- async function save(){setError('');try{const value=await f.validateFields();setBusy(true);await api('/users/'+record.id,{dataScope:{restricted:!!value.restricted,canReadEvidence:value.canReadEvidence!==false,businesses:value.businesses||[],assetIds:value.assetIds||[]}},'PATCH');setOpen(false);onChanged()}catch(e){if(e instanceof Error)setError(e.message)}finally{setBusy(false)}}
+ async function edit(){setError('');setBusy(true);try{const options=await managementOptions();setChoices(options);f.setFieldsValue({...record.dataScope,canReadSqlEvidence:record.dataScope?.canReadSqlEvidence===true,canReadAccessEvidence:record.dataScope?.canReadAccessEvidence===true,canExportAccessEvidence:record.dataScope?.canExportAccessEvidence===true,businesses:record.dataScope?.businesses||[],assetIds:record.dataScope?.assetIds||[],databaseInstanceIds:record.dataScope?.databaseInstanceIds||[]});setOpen(true)}catch(e){setError((e as Error).message)}finally{setBusy(false)}}
+ async function save(){setError('');try{const value=await f.validateFields();setBusy(true);await api('/users/'+record.id,{dataScope:{restricted:!!value.restricted,canReadEvidence:value.canReadEvidence!==false,canReadSqlEvidence:value.canReadSqlEvidence===true,canReadAccessEvidence:value.canReadAccessEvidence===true,canExportAccessEvidence:value.canExportAccessEvidence===true,businesses:value.businesses||[],assetIds:value.assetIds||[],databaseInstanceIds:value.databaseInstanceIds||[]}},'PATCH');setOpen(false);onChanged()}catch(e){if(e instanceof Error)setError(e.message)}finally{setBusy(false)}}
  const assets=[...choices.assets,...(record.dataScope?.assetIds||[]).filter((id:string)=>!choices.assets.some((a:any)=>a.value===id)).map((id:string)=>({value:id,label:'历史授权资产 · '+id,disabled:true}))],businesses=[...choices.businesses,...(record.dataScope?.businesses||[]).filter((name:string)=>!choices.businesses.some((b:any)=>b.value===name)).map((name:string)=>({value:name,label:name+' · 历史授权',disabled:true}))];
  return <><Button loading={busy&&!open} disabled={busy} onClick={()=>void edit()}>设置数据与证据权限</Button>{error&&<Alert type="error" showIcon message={error}/>}{open&&<section className="module-subsection" aria-label="数据访问范围"><h3>数据访问范围</h3><Alert type="info" showIcon message="范围限制开启但没有选择任何业务或资产时，没有资产访问权限。管理员仍拥有完整权限。"/>
  <Form form={f} layout="vertical" className="module-form-grid" disabled={busy}>
  <Form.Item name="restricted" label="限制资产范围" valuePropName="checked" extra="开启后仅能访问明确选择的业务或资产；两类授权取并集。"><Switch/></Form.Item>
  <Form.Item name="canReadEvidence" label="允许读取证据与附件" valuePropName="checked" initialValue={true} extra="关闭后隐藏详细依据、处置内容和附件，不改变可见资产范围。"><Switch/></Form.Item>
+ <Form.Item name="canReadSqlEvidence" label="允许查看数据库SQL原文" valuePropName="checked" initialValue={false} extra="独立授权7天内SQL原文，仍受数据库实例范围及证据总开关约束。"><Switch/></Form.Item>
+ <Form.Item name="canReadAccessEvidence" label="允许读取原始访问正文" valuePropName="checked" initialValue={false} extra="独立授权请求与响应原文字节，仍受主机、实例范围及证据总开关约束。"><Switch/></Form.Item>
+ <Form.Item name="canExportAccessEvidence" label="允许导出原始访问正文" valuePropName="checked" initialValue={false} extra="独立授权证据分段下载，每次导出均留下审计；普通元数据查看不会获得此权限。"><Switch/></Form.Item>
  <Form.Item name="businesses" label="允许的业务" extra="选择已存在的业务分组，不能通过输入新名称扩大授权。"><Select mode="multiple" showSearch optionFilterProp="label" options={businesses}/></Form.Item>
- <Form.Item name="assetIds" label="额外允许的资产" extra="选择具体主机，补充业务分组之外的授权；历史授权可以移除。"><Select mode="multiple" showSearch optionFilterProp="label" options={assets}/></Form.Item>
+ <Form.Item name="assetIds" label="额外允许的资产" extra="选择具体主机，补充业务分组之外的授权；历史授权可以移除。"><Select mode="multiple" showSearch optionFilterProp="label" options={assets}/></Form.Item><Form.Item name="databaseInstanceIds" label="授权数据库实例"><RecordSelect resource="database-instances" mode="multiple"/></Form.Item>
  </Form><ModuleToolbar><Button type="primary" loading={busy} onClick={()=>void save()}>保存权限</Button><Button disabled={busy} onClick={()=>setOpen(false)}>取消编辑</Button></ModuleToolbar></section>}</>;
 }
 
@@ -118,7 +124,7 @@ function LegacyCompletionPanel({ section }: { section: string }) {
         <TechnicalDetails value={info} />
       </> : <div className="module-note">{loading ? '正在加载配置…' : '配置未加载，请重新加载。'}</div>}</Spin>}
     </ModuleSection>
-    <Modal className="module-modal" width={modalWidth} title={section === 'rollouts' ? '签名升级计划' : section === 'webhook' ? 'HTTPS 通知渠道' : '定期备份策略'} open={open} closable={!busy} maskClosable={!busy} cancelButtonProps={{disabled:busy}} onCancel={() => !busy && setOpen(false)} onOk={() => void submit()} confirmLoading={busy} okText={section === 'rollouts' ? '创建计划' : '保存配置'} cancelText="取消">
+    <FormDrawer className="module-form-drawer" width={modalWidth} title={section === 'rollouts' ? '签名升级计划' : section === 'webhook' ? 'HTTPS 通知渠道' : '定期备份策略'} open={open} closable={!busy} maskClosable={!busy} cancelButtonProps={{disabled:busy}} onCancel={() => !busy && setOpen(false)} onOk={() => void submit()} confirmLoading={busy} okText={section === 'rollouts' ? '创建计划' : '保存配置'} cancelText="取消">
       <div className="module-stack">
         {error && <Alert type="error" showIcon message={error} />}
         <Form form={f} layout="vertical" className="module-form-grid" disabled={busy}>
@@ -142,7 +148,7 @@ function LegacyCompletionPanel({ section }: { section: string }) {
           </>}
         </Form>
       </div>
-    </Modal>
+    </FormDrawer>
   </div>;
 }
 
@@ -173,4 +179,4 @@ export function ExecutorKeyEditor({ record, onChanged,initialOpen=false,onClose,
   </>;
 }
 
-export function CompletionPanel({section}:{section:string}){const[tab,setTab]=useState('rollouts'),[revision,setRevision]=useState(0);return section==='rollouts'?<Tabs activeKey={tab} onChange={setTab} items={[{key:'versions',label:'发行版本',children:<AgentInstallationPanel releasesOnly onViewRollouts={()=>{setTab('rollouts');setRevision(value=>value+1);}}/>},{key:'rollouts',label:'灰度升级计划',children:<LegacyCompletionPanel key={revision} section={section}/>} ]}/>:<LegacyCompletionPanel section={section}/>;}
+export function CompletionPanel({section,onOpenFinding}:{section:string;onOpenFinding?:(id:string)=>void}){const[tab,setTab]=useState('rollouts'),[revision,setRevision]=useState(0);if(section==='webhook')return <Tabs items={[{key:'inapp',label:'站内提醒',children:<GovernancePanel simpleNotifications section="notifications" onOpenFinding={onOpenFinding}/>},{key:'webhook',label:'外部通知渠道',children:<LegacyCompletionPanel section="webhook"/>}]}/>;return section==='rollouts'?<Tabs activeKey={tab} onChange={setTab} items={[{key:'versions',label:'发行版本',children:<AgentInstallationPanel releasesOnly onViewRollouts={()=>{setTab('rollouts');setRevision(value=>value+1);}}/>},{key:'rollouts',label:'灰度升级计划',children:<LegacyCompletionPanel key={revision} section={section}/>} ]}/>:<LegacyCompletionPanel section={section}/>;}

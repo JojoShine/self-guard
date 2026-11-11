@@ -49,3 +49,10 @@ it('explains real database behavior and keeps the complete retained fields visib
  const html=renderToStaticMarkup(<EvidenceView value={{type:'DATABASE_AUTH',sourceIp:'192.0.2.8',service:'postgresql',count:5,action:'DETECT_ONLY',observations:[{user:'app_user',database:'orders',sourcePort:52000}]}}/>);
  expect(html).toContain('真实行为说明');expect(html).toContain('疑似口令爆破');expect(html).toContain('未自动封禁');expect(html).toContain('app_user');expect(html).toContain('完整留存字段');
 });
+
+it('keeps opaque proof fields collapsed and explains sensor-host evidence without claiming an intrusion',()=>{
+ const html=renderToStaticMarkup(<EvidenceView value={{eventType:'alert',assetRole:'SENSOR_HOST',occurredAt:'2026-11-06T00:00:00Z',sourceIp:'10.0.0.1',sourcePort:1234,destinationIp:'10.0.0.2',destinationPort:80,mode:'REPLAY',sourceSha256:'opaque-proof-digest',metadata:{alert:{signature:'test signature'}},action:'DETECT_ONLY'}}/>);
+ expect(html).toContain('test signature');expect(html).toContain('10.0.0.2');expect(html).toContain('离线回放');expect(html).toContain('不等于已确认入侵');
+ expect(html).toMatch(/<details[^>]*><summary>技术字段与完整证据<\/summary>/);
+ expect(html.indexOf('技术字段与完整证据')).toBeLessThan(html.indexOf('opaque-proof-digest'));
+});

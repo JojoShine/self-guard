@@ -10,6 +10,7 @@ import (
 )
 
 type nginxTransaction struct {
+	BeforeAbsent bool   `json:"beforeAbsent,omitempty"`
 	Path         string `json:"path"`
 	BeforeSHA256 string `json:"beforeSha256"`
 	AfterSHA256  string `json:"afterSha256"`
@@ -49,7 +50,7 @@ func replaceNginxFile(path string, b []byte, mode os.FileMode, uid, gid int) err
 	}
 	return syncParent(path)
 }
-func applyNginxTransaction(path, state string, after []byte, expectedBefore string, verify func() error, run func(...string) error) (resultErr error) {
+func applyNginxTransaction(path, state string, after []byte, expectedBefore string, verify func() error, run func(...string) error, review ...func() error) (resultErr error) {
 	before, err := readBoundedFile(path, 256<<10)
 	if err != nil {
 		return err
@@ -83,6 +84,11 @@ func applyNginxTransaction(path, state string, after []byte, expectedBefore stri
 	if err != nil || statErr != nil || !os.SameFile(info, current) || contentDigest(now) != tx.BeforeSHA256 {
 		return errors.New("nginx configuration changed during preflight")
 	}
+	for _, check := range review {
+		if err := check(); err != nil {
+			return err
+		}
+	}
 	defer func() {
 		if resultErr != nil {
 			resultErr = errors.Join(resultErr, rollbackNginxTransaction(state, run))
@@ -114,6 +120,32 @@ func rollbackNginxTransaction(state string, run func(...string) error) error {
 	}
 	if tx.Path == "" || contentDigest(before) != tx.BeforeSHA256 {
 		return errors.New("rollback journal or original backup invalid")
+	}
+	if tx.BeforeAbsent {
+		current, err := readBoundedFile(tx.Path, 256<<10)
+		if err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		if err == nil {
+			info, statErr := os.Lstat(tx.Path)
+			if statErr != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || multipleLinks(info) || contentDigest(current) != tx.AfterSHA256 {
+				return errors.New("nginx changed after onboarding; refusing to delete newer configuration")
+			}
+			if err = os.Remove(tx.Path); err != nil {
+				return err
+			}
+			if err = syncParent(tx.Path); err != nil {
+				return err
+			}
+		}
+		if err = run("-t"); err != nil {
+			return err
+		}
+		if err = run("-s", "reload"); err != nil {
+			return err
+		}
+		tx.Status = "ROLLED_BACK"
+		return writePrivate(filepath.Join(state, "journal.json"), tx)
 	}
 	current, err := readBoundedFile(tx.Path, 256<<10)
 	if err != nil {

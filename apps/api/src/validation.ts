@@ -1,4 +1,5 @@
 import {sshAccessInput} from './asset-remote-contract';
+import {securityDomainInput} from './security-domain';
 import { BadRequestException } from "@nestjs/common";
 import { z } from "zod";
 export function parse<T extends z.ZodTypeAny>(
@@ -23,6 +24,7 @@ export const findingInput = z
     severity,
     source: text,
     evidence: z.string().max(16000),
+    instanceId: z.string().uuid().optional(),
     assetId: z.string().uuid().optional(),
   })
   .strict();
@@ -78,6 +80,7 @@ export const assetInput = z
   })
   .strict();
 export const pageInput = z.object({
+  securityDomain:securityDomainInput.optional(),
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(20),
   q: z.string().max(200).optional(),

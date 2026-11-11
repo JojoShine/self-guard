@@ -22,3 +22,12 @@ test('composite proof refuses a missing, mismatched, changed-scope or unfinished
     await assert.rejects(() => pinScanSources(fixture(root), ['feed']), /基线|来源/);
   }
 });
+
+test('NVD full baseline can be pinned and hydrated through the real snapshot relation projection',async()=>{
+ const config={mode:'YEAR',year:2026,syncMode:'AUTO'},rootId='nvd-root',annualId='nvd-annual',artifact={encoding:'GZIP_JSON'};
+ const annual={id:annualId,feedId:'nvd-feed',status:'COMPLETE',config,normalizerVersion:'selfguard-intelligence-v7',sourceSha256:sha('a'),artifactSha256:sha('b'),contentSha256:sha('c'),sourceUrl:'https://nvd.nist.gov/annual',artifact,sourceManifest:{sync:{role:'ANNUAL_COMPONENT',parentSnapshotId:rootId}}};
+ const root={...annual,id:rootId,version:'2026/fixed',sourceSha256:sha('d'),artifactSha256:sha('e'),contentSha256:sha('f'),sourceUrl:'https://nvd.nist.gov/modified',sourceManifest:{sync:{strategy:'NVD_FULL_WITH_MODIFIED',annualSnapshotId:annualId,annualArtifactSha256:annual.artifactSha256,annualContentSha256:annual.contentSha256}}};
+ const feed={id:'nvd-feed',name:'NVD official composite',provider:'NVD',enabled:true,configHash:'fixed',currentSnapshotId:rootId,lastSuccessAt:new Date(),staleAfterHours:72};
+ const db={vulnerabilityFeed:{findMany:async()=>[feed],findUnique:async()=>feed},vulnerabilitySnapshot:{findFirst:async(query:{where:{id:string};include?:{artifact?:boolean}})=>{const selected=query.where.id===rootId?root:annual;return{...selected,artifact:query.include?.artifact?selected.artifact:undefined}}},vulnerabilityRecord:{findMany:async()=>[]}};
+ const pins=await pinScanSources(db,[feed.id]);assert.equal(pins[0].sourceParts?.length,2);const result=await assessPinnedInventory(db,{components:[{ecosystem:'npm',name:'example',version:'1.0.0'}],componentCollection:{complete:true}},pins);assert.equal(result.coverage.status,'INCONCLUSIVE');
+});

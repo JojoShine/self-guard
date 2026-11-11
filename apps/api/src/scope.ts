@@ -1,13 +1,18 @@
+import {instanceScope,assertInstanceScope} from './database-instances';
 import { map } from 'rxjs/operators';
 import { Injectable, NestInterceptor, ExecutionContext, CallHandler, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { z } from 'zod';
 
 export const dataScopeInput = z.object({
+  databaseInstanceIds: z.array(z.string().uuid()).max(1000).default([]),
   restricted: z.boolean().default(false),
   businesses: z.array(z.string().trim().min(1).max(200)).max(200).default([]),
   assetIds: z.array(z.string().uuid()).max(1000).default([]),
   canReadEvidence: z.boolean().default(true),
+  canReadSqlEvidence: z.boolean().default(false),
+  canReadAccessEvidence: z.boolean().default(false),
+  canExportAccessEvidence: z.boolean().default(false),
 }).strict();
 export function restricted(user: any) { return user?.role !== 'ADMIN' && user?.dataScope?.restricted === true; }
 export function evidenceAllowed(user: any) { return user?.role === 'ADMIN' || user?.dataScope?.canReadEvidence !== false; }
@@ -23,7 +28,8 @@ export async function resourceWhere(db: any, user: any, resource: string): Promi
   if (!restricted(user)) return {};
   const assets = assetScope(user);
   if (resource === 'assets') return assets;
-  if (resource === 'findings' || resource === 'tasks') return { asset: { is: assets } };
+  if (resource === 'findings') return {OR:[{instanceId:null,asset:{is:assets}},{instance:{is:instanceScope(user)}}]};
+  if (resource === 'tasks') return { asset: { is: assets } };
   if (resource === 'rules') return {};
   if (resource === 'evaluations') {
     const ids = await db.asset.findMany({where:assets,select:{id:true}});
@@ -37,7 +43,7 @@ export async function resourceWhere(db: any, user: any, resource: string): Promi
       return {id:{in:rows.map((r:any)=>r.id)}};
     }
     const rows = await db.$queryRaw(Prisma.sql`SELECT i.id FROM "Incident" i WHERE i."assetIds" <@ ${ids}::text[] AND i."taskIds" <@ ${taskIds}::text[] AND (cardinality(i."assetIds")>0 OR cardinality(i."taskIds")>0 OR EXISTS (SELECT 1 FROM "IncidentFinding" l WHERE l."incidentId"=i.id))`);
-    return {AND:[{id:{in:rows.map((r:any)=>r.id)}},{links:{every:{finding:{asset:{is:assets}}}}}]};
+    return {AND:[{id:{in:rows.map((r:any)=>r.id)}},{links:{every:{finding:await resourceWhere(db,user,'findings')}}}]};
   }
   return {id:{in:[]}};
 }
@@ -47,7 +53,9 @@ export async function assertScope(db: any, user: any, resource: string, id: stri
   if (!found) throw new NotFoundException('记录不存在或不在授权范围');
 }
 export async function assertLinks(db: any, user: any, body: any) {
-  if (!restricted(user) || !body || typeof body !== 'object') return;
+  if (!body || typeof body !== 'object') return;
+  if(body.instanceId)await assertInstanceScope(db,user,body.instanceId);
+  if (!restricted(user)) return;
   for (const [key,resource] of [['assetId','assets'],['findingId','findings'],['relatedRiskId','findings']] as const)
     if (body[key]) await assertScope(db,user,resource,body[key]);
   for (const [key,resource] of [['assetIds','assets'],['findingIds','findings'],['taskIds','tasks']] as const)

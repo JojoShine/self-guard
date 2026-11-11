@@ -29,8 +29,10 @@ const notificationInput = z.object({
   approvals: z.boolean().optional(),
   taskFailures: z.boolean().optional(),
   criticalFindings: z.boolean().optional(),
+  assignedFindings: z.boolean().optional(),
+  overdueFindings: z.boolean().optional(),
 }).strict();
-const defaultNotifications = { enabled: true, approvals: true, taskFailures: true, criticalFindings: true };
+const defaultNotifications = { enabled: true, approvals: true, taskFailures: true, criticalFindings: true, assignedFindings:false, overdueFindings:false };
 type Tx = Prisma.TransactionClient;
 
 export async function assertTaskApproval(db: Tx, task: { requestedBy: string }, actor: string) {
@@ -160,7 +162,8 @@ export class GovernanceController {
   async syncNotifications(@Req() req: any) {
     const settings = await this.notificationSettings(req);
     if (!settings.enabled) return { created: 0 };
-    const candidates: Array<{ title: string; resource: string; resourceId: string; state: string }> = [];
+    let findingCreated=0;
+    const candidates: Array<{ title: string; resource: string; resourceId: string; state: string;inAppOnly?:boolean }> = [];
     const policy = await this.approvalPolicy();
     if (settings.approvals && policy.approverRoles.includes(req.user.role)) {
       const tasks = await this.db.task.findMany({ where: { ...await resourceWhere(this.db,req.user,"tasks"),status: "PENDING", expiresAt: { gt: new Date() }, ...(!policy.allowSelfApproval ? { requestedBy: { not: req.user.email } } : {}) }, take: 100, orderBy: { createdAt: "desc" } });
@@ -174,8 +177,25 @@ export class GovernanceController {
       const findings = await this.db.finding.findMany({ where: { ...await resourceWhere(this.db,req.user,"findings"),owner: { in: [req.user.email, req.user.name] }, severity: "CRITICAL", status: { notIn: ["CLOSED", "RESOLVED", "FALSE_POSITIVE"] } }, take: 100, orderBy: { updatedAt: "desc" } });
       candidates.push(...findings.map(f => ({ title: "严重问题：" + f.title, resource: "findings", resourceId: f.id, state: f.status })));
     }
+    if(settings.assignedFindings||settings.overdueFindings){
+      const now=new Date(),escalateBefore=new Date(now.getTime()-24*3600000),owners=[req.user.email,req.user.name].filter((v):v is string=>typeof v==='string'&&v.length>0);
+      const scoped=await resourceWhere(this.db,req.user,'findings');let cursor:string|undefined;
+      for(;;){
+        const findings=await this.db.finding.findMany({where:{AND:[scoped,{status:{in:['OPEN','CONFIRMED','IN_PROGRESS','VERIFYING']}},{OR:[{owner:{in:owners}},...(settings.overdueFindings&&req.user.role==='ADMIN'?[{dueAt:{lte:escalateBefore}}]:[])]},...(cursor?[{id:{gt:cursor}}]:[])]},select:{id:true,title:true,owner:true,dueAt:true},orderBy:{id:'asc'},take:100});
+        if(!findings.length)break;
+        const batch=[];
+        for(const f of findings){
+          const owned=!!f.owner&&owners.includes(f.owner);
+          if(settings.assignedFindings&&owned)batch.push({title:'新指派问题：'+f.title,resource:'findings',resourceId:f.id,state:'assigned-v1',inAppOnly:true});
+          if(settings.overdueFindings&&f.dueAt&&f.dueAt<now&&owned)batch.push({title:'问题已超期：'+f.title,resource:'findings',resourceId:f.id,state:'overdue:'+f.dueAt.toISOString(),inAppOnly:true});
+          if(settings.overdueFindings&&req.user.role==='ADMIN'&&f.dueAt&&f.dueAt<=escalateBefore)batch.push({title:'超期24小时升级：'+f.title,resource:'findings',resourceId:f.id,state:'overdue-escalation24:'+f.dueAt.toISOString(),inAppOnly:true});
+        }
+        const made=await this.db.notification.createMany({data:batch.map(({state,...c})=>({...c,userId:req.user.id,id:hashToken(JSON.stringify([req.user.id,c.resource,c.resourceId,state]))})),skipDuplicates:true});
+        findingCreated+=made.count;cursor=findings[findings.length-1].id;
+      }
+    }
     const result = await this.db.notification.createMany({ data: candidates.map(({ state, ...c }) => ({ ...c, userId: req.user.id, id: hashToken(JSON.stringify([req.user.id, c.resource, c.resourceId, state])) })), skipDuplicates: true });
-    return { created: result.count };
+    return { created: result.count+findingCreated };
   }
   @Get("imports")
   async imports(@Req() req: any) {

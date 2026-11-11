@@ -13,7 +13,7 @@ import (
 )
 
 func databaseLogRule(c PolicyConfig) bool {
-	return c.Type == "DATABASE_AUTH" || c.Type == "DATABASE_CLEARTEXT"
+	return c.Type == "DATABASE_AUTH" || c.Type == "DATABASE_CLEARTEXT" || c.Type == "DATABASE_ACTIVITY" || c.Type == "DATABASE_ACCESS" || c.Type == "DATABASE_COLLECTION"
 }
 
 // Only explicitly reported connection encryption is evidence of plaintext traffic.
@@ -82,7 +82,7 @@ func databaseLog(line, format string) (databaseObservation, bool) {
 		if o.Outcome != "AUTH_FAILURE" && o.Outcome != "CONNECTED" {
 			return o, false
 		}
-		if !map[string]bool{"mysql": true, "postgresql": true, "mongodb": true, "redis": true, "sqlserver": true}[o.Service] {
+		if !databaseEngine(o.Service) {
 			return o, false
 		}
 	default:

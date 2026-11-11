@@ -1,0 +1,15 @@
+import 'reflect-metadata';
+import {test} from 'node:test';import assert from 'node:assert/strict';
+import {randomUUID} from 'node:crypto';
+import {networkEventInput,networkSensorInput,networkSensorPatch} from '../src/network-sensor-contract';
+import {networkContentHash,validateNetworkBatch} from '../src/network-sensors';
+import {findingSecurityDomain} from '../src/security-domain';
+const now=new Date().toISOString();
+const event={eventId:'a'.repeat(64),sourceSha256:'b'.repeat(64),occurredAt:now,eventType:'alert',flowId:'18446744073709551615',metadata:{alert:{signatureId:1,gid:1,rev:1,severity:1,signature:'test',action:'allowed'}}};
+const health={status:'READING',detailCode:'OK',observedAt:now,invalidLines:0,skippedLines:0,rotationGaps:0,pendingEvents:0};
+test('network event keeps uint64 IDs and rejects raw data and query strings',()=>{assert.equal(networkEventInput.parse(event).flowId,event.flowId);for(const bad of [{...event,payload:'secret'},{...event,metadata:{...event.metadata,http:{path:'/login?password=secret'}}},{...event,metadata:{...event.metadata,http:{headers:{Authorization:'secret'}}}},{...event,flowId:18446744073709551615},{...event,flowId:'18446744073709551616'},{...event,flowId:'garbage'},{...event,metadata:{}}])assert.equal(networkEventInput.safeParse(bad).success,false);assert.equal(findingSecurityDomain('suricata'),'NETWORK')});
+test('network batch limits timestamps, strict types and event count',()=>{const base={batchId:randomUUID(),mode:'LIVE',events:[event],health};assert.equal(validateNetworkBatch(base).events.length,1);assert.throws(()=>validateNetworkBatch({...base,events:Array(51).fill(event)}));assert.throws(()=>validateNetworkBatch({...base,events:[{...event,occurredAt:new Date(Date.now()+3600000).toISOString()}]}));assert.throws(()=>validateNetworkBatch({...base,health:{...health,observedAt:new Date(Date.now()+3600000).toISOString()}}));assert.throws(()=>validateNetworkBatch({...base,headers:{}}));});
+test('canonical event hash ignores key order but detects any value change',()=>{assert.equal(networkContentHash({b:[2,{z:3,a:1}],a:1}),networkContentHash({a:1,b:[2,{a:1,z:3}]}));assert.notEqual(networkContentHash(event),networkContentHash({...event,sourceSha256:'c'.repeat(64)}));});
+test('source input defaults disabled and rejects relative paths and secret rule URLs',()=>{const input={name:'sensor',assetId:randomUUID()};assert.equal(networkSensorInput.parse(input).enabled,false);assert.equal(networkSensorInput.safeParse({...input,evePath:'/var/../secret'}).success,false);assert.equal(networkSensorInput.safeParse({...input,ruleSourceUrl:'https://example.com/rules?token=secret'}).success,false);assert.equal(networkSensorInput.safeParse({...input,ruleSourceUrl:'invalid'}).success,false)});
+
+test('patch never fills create defaults and supports clearing optional fields',()=>{const expectedUpdatedAt=new Date().toISOString();assert.deepEqual(networkSensorPatch.parse({expectedUpdatedAt,ruleFile:null,ruleSourceUrl:null,expectedRuleSha256:null}),{expectedUpdatedAt,ruleFile:null,ruleSourceUrl:null,expectedRuleSha256:null})});

@@ -23,3 +23,15 @@ test('compatibility explains fixed-profile inactive branches separately from uns
  assert.equal(compatibilityResultInput.safeParse(report).success,true);
  assert.equal(compatibilityResultInput.safeParse({...report,inactiveByConfiguration:-1}).success,false);
 });
+
+import {WafBundlesController} from '../src/waf-bundles';
+test('isolated check node uses its own token and preserves legacy fallback',async()=>{
+ const previous={url:process.env.WAF_TEST_URL,token:process.env.WAF_TOKEN,testToken:process.env.WAF_TEST_TOKEN,fetch:globalThis.fetch};
+ const report={publishable:true,parsed:1,unsupported:[],outsideProfile:0,engine:'selfguard-seclang-v1'};
+ const tx={wafRuleBundle:{updateMany:async()=>({count:1})},audit:{create:async()=>({})}};
+ const db={wafRuleBundle:{findUniqueOrThrow:async()=>({id:'candidate',files:[],sha256:'fixed',updatedAt:new Date()})},$transaction:async(work:(value:typeof tx)=>unknown)=>work(tx)};
+ try{process.env.WAF_TEST_URL='http://127.0.0.1:18082';process.env.WAF_TOKEN='fixture-shared-token';process.env.WAF_TEST_TOKEN='fixture-check-only-token';let authorization='';globalThis.fetch=async(_url,options)=>{authorization=(options?.headers as Record<string,string>).authorization;return new Response(JSON.stringify(report))};
+ const controller=new WafBundlesController(db as never),req={user:{role:'ADMIN',email:'fixture@example.test'}};
+ await controller.check(req,'candidate');assert.equal(authorization,'Bearer fixture-check-only-token');delete process.env.WAF_TEST_TOKEN;await controller.check(req,'candidate');assert.equal(authorization,'Bearer fixture-shared-token');
+ }finally{for(const[key,value]of Object.entries({WAF_TEST_URL:previous.url,WAF_TOKEN:previous.token,WAF_TEST_TOKEN:previous.testToken})){if(value===undefined)delete process.env[key];else process.env[key]=value}globalThis.fetch=previous.fetch}
+});

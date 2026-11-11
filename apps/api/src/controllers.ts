@@ -12,6 +12,7 @@ import {
   UseGuards,
   Inject,
   BadRequestException,
+  ConflictException,
   NotFoundException,
 } from "@nestjs/common";
 import { AuthGuard, allow } from "./auth";
@@ -61,6 +62,7 @@ export class PlatformController {
         .object({
           resolved: z.boolean(),
           evidence: z.string().trim().min(5).max(16000),
+          expectedUpdatedAt: z.string().datetime().optional(),
         })
         .strict(),
       body,
@@ -68,12 +70,13 @@ export class PlatformController {
     return this.p.db.$transaction(async (tx) => {
       await assertScope(tx,req.user,"findings",id);
       const f = await tx.finding.findUnique({ where: { id } });
-      if (!f || f.kind !== "RISK" || f.status !== "VERIFYING")
-        throw new BadRequestException("仅待验证风险可以复测");
+      if (!f || !['RISK','ALERT'].includes(f.kind) || f.status !== "VERIFYING")
+        throw new BadRequestException("仅待验证风险或告警可以复查");
+      if(v.expectedUpdatedAt&&Date.parse(v.expectedUpdatedAt)!==f.updatedAt.getTime())throw new ConflictException('记录已更新，请刷新后重新复查');
       const result = await tx.finding.updateMany({
         where: { id, status: "VERIFYING", updatedAt: f.updatedAt },
         data: {
-          status: v.resolved ? "CLOSED" : "IN_PROGRESS",
+          status: v.resolved ? f.kind==='RISK'?"CLOSED":"RESOLVED" : "IN_PROGRESS",
           reason: v.evidence,
         },
       });

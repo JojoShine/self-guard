@@ -1,3 +1,6 @@
+import {assertDatabaseRuleEngine,assertInstanceScope} from './database-instances';
+import {findingSecurityDomain} from './security-domain';
+import {databaseAccessInput,databaseActivityInput} from './data-security';
 import {saveAssetRemoteAccess} from './asset-remote-access';
 import {assetOperatingSystemData} from './asset-os';
 import {databaseBaselineInput,databaseLogInput} from './data-security';
@@ -85,6 +88,7 @@ export class Platform {
   async discoveries(query: any, user?: any) {
     const v = parse(pageInput, query);
     const filters = [Prisma.sql`1=1`];
+    if(v.securityDomain)filters.push(Prisma.sql`${v.securityDomain}=ANY("securityDomains")`);
     if (restricted(user)) {
       const findings = await this.db.finding.findMany({where:await resourceWhere(this.db,user,'findings'),select:{id:true}});
       const incidents = await this.db.incident.findMany({where:await resourceWhere(this.db,user,'incidents'),select:{id:true}});
@@ -105,9 +109,9 @@ export class Platform {
       filters.push(Prisma.sql`("assetId"=ANY(${ids}::text[]) OR id=ANY(${incidents.map(i=>i.id)}::text[]))`);
     }
     const base = Prisma.sql`WITH discoveries AS (
-   SELECT id,title,kind,severity,status,"assetId",source,owner,"createdAt","updatedAt",evidence FROM "Finding"
+   SELECT id,title,kind,severity,status,"assetId",source,owner,"createdAt","updatedAt",evidence,"securityDomain"::text AS "securityDomain",ARRAY["securityDomain"::text] AS "securityDomains" FROM "Finding"
    UNION ALL
-   SELECT id,title,'INCIDENT' AS kind,severity,status,NULL AS "assetId",'incident' AS source,owner,"createdAt","updatedAt",description AS evidence FROM "Incident"
+   SELECT i.id,i.title,'INCIDENT' AS kind,i.severity,i.status,NULL AS "assetId",'incident' AS source,i.owner,i."createdAt",i."updatedAt",i.description AS evidence,NULL::text AS "securityDomain",COALESCE((SELECT array_agg(DISTINCT f."securityDomain"::text) FROM "IncidentFinding" l JOIN "Finding" f ON f.id=l."findingId" WHERE l."incidentId"=i.id),ARRAY['UNCLASSIFIED']) AS "securityDomains" FROM "Incident" i
   )`;
     const condition = Prisma.join(filters, " AND ");
     const order=Prisma.raw(v.order==='asc'?'ASC':'DESC');
@@ -136,6 +140,10 @@ export class Platform {
       evaluations: "evaluation",
     };
     if (!map[resource]) throw new NotFoundException();
+    if(v.securityDomain){
+      if(resource!=="findings")throw new BadRequestException('此列表不支持安全领域筛选');
+      where.securityDomain=v.securityDomain;
+    }
     if (v.q) {
       const fields: Record<string, string[]> = {
         assets: ["hostname", "business", "owner"],
@@ -156,7 +164,8 @@ export class Platform {
     if(v.owner&&['assets','findings','incidents'].includes(resource))where.owner=v.owner;
     if(v.business){
       if(resource==='assets')where.business=v.business;
-      if(['findings','tasks'].includes(resource))where.AND=[...(where.AND||[]),{asset:{is:{business:v.business}}}];
+      if(resource==='findings')where.AND=[...(where.AND||[]),{OR:[{asset:{is:{business:v.business}}},{instance:{is:{business:v.business}}}]}];
+      if(resource==='tasks')where.AND=[...(where.AND||[]),{asset:{is:{business:v.business}}}];
       if(resource==='incidents'){
         const assets=await this.db.asset.findMany({where:{AND:[await resourceWhere(this.db,user,'assets'),{business:v.business}]},select:{id:true}});
         where.AND=[...(where.AND||[]),{OR:[{assetIds:{hasSome:assets.map(a=>a.id)}},{links:{some:{finding:{asset:{is:{business:v.business}}}}}}]}];
@@ -257,6 +266,7 @@ export class Platform {
       else if (resource === "rules") {
         const v = parse(ruleInput, body);
         this.validateRule(v);
+        if(typeof v.config.instanceId==='string'){const instance=await assertInstanceScope(tx,{role:user?.role||"VIEWER",dataScope:parse(dataScopeInput,user?.dataScope||{})},v.config.instanceId);if(instance.archivedAt)throw new BadRequestException('数据库实例已归档');assertDatabaseRuleEngine(instance.engine,v.config);}
         item = await tx.rule.create({
           data: {
             ...v,
@@ -431,7 +441,7 @@ export class Platform {
       parse(z.union([base,cfg,svc,databaseBaselineInput]),v.config);
     }
     else if (v.kind === "LOG")
-      parse(z.union([databaseLogInput,z.object({contains:z.string().min(1).max(200),field:z.enum(["message","source"]).default("message"),threshold:z.number().int().min(1).max(1000).default(1),windowSeconds:z.number().int().min(1).max(86400).optional()}).strict()]),v.config);
+      parse(z.union([databaseAccessInput,databaseActivityInput,databaseLogInput,z.object({contains:z.string().min(1).max(200),field:z.enum(["message","source"]).default("message"),threshold:z.number().int().min(1).max(1000).default(1),windowSeconds:z.number().int().min(1).max(86400).optional()}).strict()]),v.config);
     else if (v.kind === "FIM")
       parse(
         z.object({ path: z.string().startsWith("/").max(4096) }).strict(),
@@ -464,6 +474,7 @@ export class Platform {
     }
     return this.db.$transaction(async (tx) => {
       let item: any;
+      let findingPrevious: {status:string;owner:string|null;dueAt:Date|null}|undefined;
       if(resource==='assets'){
         const previous=await tx.asset.findUnique({where:{id}});const {sshAccess,...assetData}=parse(assetInput.partial(),body);item=await tx.asset.update({where:{id},data:assetOperatingSystemData(assetData,previous||undefined),select:safeAsset});if(sshAccess)await saveAssetRemoteAccess(tx,user,item,sshAccess);if(item.business)await tx.businessGroup.upsert({where:{name:item.business},create:{name:item.business},update:{}});await recordAssetChange(tx,id,previous,item,actor);
       }
@@ -475,18 +486,22 @@ export class Platform {
               owner: text.optional(),
               reason: z.string().max(4000).optional(),
               expiresAt: z.string().datetime().optional(),
-              dueAt: z.string().datetime().optional(),
+              dueAt: z.string().datetime().nullable().optional(),
+              expectedUpdatedAt: z.string().datetime().optional(),
             })
             .strict(),
           body,
         );
         const old = await tx.finding.findUnique({ where: { id } });
         if (!old) throw new NotFoundException();
+        if(v.expectedUpdatedAt&&Date.parse(v.expectedUpdatedAt)!==old.updatedAt.getTime())throw new ConflictException('记录已更新，请刷新后重新处置');
+        findingPrevious={status:old.status,owner:old.owner,dueAt:old.dueAt};
         if (v.status && v.status !== old.status)
           findingTransition(old.kind, old.status, v.status, v);
+        const {expectedUpdatedAt,...data}=v;
         const changed = await tx.finding.updateMany({
           where: { id, updatedAt: old.updatedAt },
-          data: v,
+          data,
         });
         if (!changed.count) throw new ConflictException("记录已更新，请刷新");
         item = await tx.finding.findUnique({ where: { id } });
@@ -559,6 +574,7 @@ export class Platform {
         const old = await tx.rule.findUnique({ where: { id } });
         if (!old) throw new NotFoundException();
         this.validateRule({ ...old, ...v });
+        const binding=(v.config||old.config) as {instanceId?:string};if(binding.instanceId){const instance=await assertInstanceScope(tx,{role:user?.role||"VIEWER",dataScope:parse(dataScopeInput,user?.dataScope||{})},binding.instanceId);if(instance.archivedAt)throw new BadRequestException("数据库实例已归档");assertDatabaseRuleEngine(instance.engine,(v.config||old.config) as Record<string,unknown>);}
         item = await tx.rule.update({
           where: { id },
           data: {
@@ -625,14 +641,15 @@ export class Platform {
       await this.audit(tx, actor, "UPDATE", resource, id, {
         fields: Object.keys(body as object),
         ...(resource === "findings"
-          ? { status: item.status, reason: item.reason }
+          ? { status: item.status, reason: item.reason, owner:item.owner, dueAt:item.dueAt?.toISOString()??null, previous:findingPrevious?{status:findingPrevious.status,owner:findingPrevious.owner,dueAt:findingPrevious.dueAt?.toISOString()??null}:null }
           : {}),
       });
       return item;
     });
   }
-  async ingest(tx: Tx, raw: unknown, forcedAsset?: string) {
+  async ingest(tx: Tx, raw: unknown, forcedAsset?: string, trustedRuleConfig?:unknown) {
     const v = parse(findingInput, raw);
+    const securityDomain=findingSecurityDomain(v.source,trustedRuleConfig);
     const assetId = forcedAsset || v.assetId;
     if (
       assetId &&
@@ -643,12 +660,12 @@ export class Platform {
     )
       throw new BadRequestException("资产不存在");
     const dedupKey = hashToken(
-      JSON.stringify([v.source, v.externalId, assetId || "", v.kind]),
+      JSON.stringify([v.source, v.externalId, assetId || "", v.kind, ...(v.instanceId?[v.instanceId]:[])]),
     );
     // Serialize same-finding ingestion across concurrent heartbeats/imports.
     await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${dedupKey}))::text`;
     const old = await tx.finding.findUnique({ where: { dedupKey } });
-    if (!old) return tx.finding.create({ data: { ...v, assetId, dedupKey } });
+    if (!old) return tx.finding.create({ data: { ...v, assetId, dedupKey, securityDomain } });
     const reopen =
       ["CLOSED", "RESOLVED"].includes(old.status) ||
       (old.status === "ACCEPTED" &&
@@ -657,6 +674,7 @@ export class Platform {
     return tx.finding.update({
       where: { id: old.id },
       data: {
+        securityDomain:old.securityDomain==='UNCLASSIFIED'?securityDomain:old.securityDomain,
         title: v.title,
         severity: v.severity,
         evidence: v.evidence,
@@ -672,7 +690,7 @@ export class Platform {
       z.object({ items: z.array(findingInput).min(1).max(100) }).strict(),
       body,
     );
-    for (const item of v.items) { await assertLinks(this.db,user,item); if(restricted(user)&&!item.assetId)throw new BadRequestException("导入需要授权资产"); }
+    for (const item of v.items) { await assertLinks(this.db,user,item); if(restricted(user)&&!item.assetId&&!item.instanceId)throw new BadRequestException("导入需要授权资产"); }
     return this.db.$transaction(
       async (tx) => {
         const items = [];

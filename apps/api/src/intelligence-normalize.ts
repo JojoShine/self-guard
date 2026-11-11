@@ -1,5 +1,5 @@
 import {createHash} from 'node:crypto';import {z} from 'zod';import {canonicalPackageName} from './package-identity';
-export type IntelligenceProvider='OSV'|'ALPINE'|'NVD'|'CISA_KEV'|'DEBIAN';
+export type IntelligenceProvider='OSV'|'ALPINE'|'NVD'|'CISA_KEV'|'DEBIAN'|'KYLIN';
 export type IntelligenceRecord={externalId:string;aliases:string[];summary:string;details:string;severity:string|null;scores:any[];purpose:'PACKAGE'|'CANDIDATE'|'PRIORITY'|'METADATA';affected:any[];packages:string[];references:any[];modifiedAt:string|null;withdrawnAt:string|null;metadata:Record<string,unknown>;rawSha256:string};
 export type NormalizedIntelligence={version:string;records:IntelligenceRecord[];coverage:string};
 const text=z.string().trim().min(1).max(100000),identifier=z.string().trim().min(1).max(500),cve=z.string().regex(/^CVE-\d{4}-\d{4,}$/);
@@ -15,7 +15,7 @@ function record(id:string,raw:unknown,maximum=2*1024*1024):IntelligenceRecord {
 }
 function scheme(ecosystem:string){if(/^(Debian|Ubuntu)(:|$)/.test(ecosystem))return 'DEBIAN';if(/^Alpine(:|$)/.test(ecosystem))return 'APK';if(/^(Rocky Linux|AlmaLinux|Red Hat)(:|$)/.test(ecosystem))return 'RPM';return ({npm:'SEMVER',Go:'GO',PyPI:'PEP440',Maven:'MAVEN'} as Record<string,string>)[ecosystem]||'UNKNOWN'}
 function osv(raw:unknown,ubuntuProfile=false):NormalizedIntelligence {
- const maximum=(ubuntuProfile?4:2)*1024*1024,linkLimit=ubuntuProfile?10000:1000;
+ const maximum=(ubuntuProfile?8:2)*1024*1024,linkLimit=ubuntuProfile?10000:1000;
  const input=object(raw),id=identifier.parse(input.id),result=record(id,raw,maximum);if(!input.modified)throw Error('OSV通告缺少修改时间');result.aliases=aliases([id,...array(input.aliases||[],100)]);result.summary=input.summary?text.parse(input.summary):id;result.details=input.details?text.parse(input.details):'';result.modifiedAt=date(input.modified);result.withdrawnAt=date(input.withdrawn);result.references=references(input.references,linkLimit);result.severity=rating(input.database_specific?.severity);
  const upstream=array(input.upstream||[],linkLimit).map(value=>identifier.parse(value)),related=array(input.related||[],linkLimit).map(value=>identifier.parse(value));
  if(/^UBUNTU-CVE-\d{4}-\d{4,}$/.test(id)&&upstream.includes(id.slice(7)))result.aliases=aliases([...result.aliases,id.slice(7)]);
@@ -64,6 +64,6 @@ function nvd(raw:unknown):NormalizedIntelligence {
  });
  return {version:date(input.timestamp)||'NVD-response',records,coverage:'指定NVD范围的描述、评分、弱点和完整CPE条件；CPE仅作为产品适用候选'};
 }
-export function normalizeIntelligence(provider:Exclude<IntelligenceProvider,'DEBIAN'>,raw:unknown,profile?:'UBUNTU_ARCHIVE'):NormalizedIntelligence {
+export function normalizeIntelligence(provider:Exclude<IntelligenceProvider,'DEBIAN'|'KYLIN'>,raw:unknown,profile?:'UBUNTU_ARCHIVE'):NormalizedIntelligence {
  const result=provider==='OSV'?osv(raw,profile==='UBUNTU_ARCHIVE'):({ALPINE:alpine,NVD:nvd,CISA_KEV:kev}[provider])(raw);const seen=new Set<string>();for(const record of result.records){if(seen.has(record.externalId))throw Error('来源包含重复情报标识，无法发布完整快照');seen.add(record.externalId)}return result;
 }

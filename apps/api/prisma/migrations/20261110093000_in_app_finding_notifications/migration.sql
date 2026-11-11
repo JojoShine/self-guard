@@ -1,0 +1,1 @@
+ALTER TABLE "Notification" ADD COLUMN "inAppOnly" BOOLEAN NOT NULL DEFAULT false;

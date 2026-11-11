@@ -1,7 +1,7 @@
 // Preserve original fixture bytes and status assertions. This only prepares the
 // bounded native HTTP replay input; it does not run a server or change a policy.
 const fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict'),{createHash}=require('node:crypto'),{request}=require('./crs-ftw-request.cjs');
-const root=path.resolve(__dirname,'..'),folder=path.join(root,'.artifacts/results/expansion'),corpus=JSON.parse(fs.readFileSync(path.join(folder,'crs-full-corpus.json'))),index=JSON.parse(fs.readFileSync(path.join(folder,'crs-full-selection-final-index.json'))),byId=new Map(index.rules.map(rule=>[rule.id,rule]));
+const root=path.resolve(__dirname,'..'),folder=path.join(root,'.artifacts/results/expansion'),corpus=JSON.parse(fs.readFileSync(path.join(folder,'crs-full-corpus.json'))),index=JSON.parse(fs.readFileSync(path.join(folder,process.env.CRS_HTTP_INDEX||'crs-full-selection-final-index.json'))),byId=new Map(index.rules.map(rule=>[rule.id,rule]));
 assert.equal(corpus.archiveSha256,'0539e66e7627fe71c160a644d8fb7ab6e450d53c9de208be5f95a35c70e1a154');assert.equal(corpus.errors.length,0);
 const cases=[],excluded=[];
 for(const file of corpus.files){const document=file.document;if(!document)continue;

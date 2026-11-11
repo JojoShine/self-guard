@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -121,13 +122,21 @@ func (q *accessQueue) deliver(client *http.Client, base, token, nodeID string) e
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return fmt.Errorf("access delivery status %d", resp.StatusCode)
 	}
-	q.mu.Lock()
-	defer q.mu.Unlock()
+	// The API already durably acknowledged these immutable IDs. File deletion
+	// and directory fsync must not serialize new audit appends behind a batch.
+	removed := make([]string, 0, len(names))
+	var removeErr error
 	for _, name := range names {
 		if err = os.Remove(filepath.Join(q.dir, name)); err != nil && !os.IsNotExist(err) {
-			return err
+			removeErr = err
+			break
 		}
+		removed = append(removed, name)
+	}
+	q.mu.Lock()
+	for _, name := range removed {
 		delete(q.files, name)
 	}
-	return syncDirectory(q.dir)
+	q.mu.Unlock()
+	return errors.Join(removeErr, syncDirectory(q.dir))
 }

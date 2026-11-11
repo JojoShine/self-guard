@@ -1,3 +1,7 @@
 ARG API_DEV_BASE=node:22-bookworm-slim
+FROM projectdiscovery/nuclei:v3.11.1@sha256:582d5546902e67052097cb2d07296c642d50a1afc5e44623cb038845df9a32eb AS native-engine
 FROM ${API_DEV_BASE}
 RUN --mount=type=tmpfs,target=/tmp --mount=type=tmpfs,target=/var/lib/apt/lists --mount=type=tmpfs,target=/var/cache/apt apt-get update && apt-get install -y --no-install-recommends openssl openssh-client && rm -rf /var/lib/apt/lists/*
+
+COPY --from=native-engine /usr/local/bin/nuclei /usr/local/bin/nuclei
+ENV NUCLEI_BINARY=/usr/local/bin/nuclei

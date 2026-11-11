@@ -1,0 +1,65 @@
+const assert=require('node:assert/strict');
+const {randomUUID,createHash}=require('node:crypto');
+const {Db}=require('../dist/db');
+const {Platform}=require('../dist/platform');
+const {AccessObservationService}=require('../dist/access-observation');
+const {StorageController}=require('../dist/storage');
+async function main(){
+ assert.equal(process.env.SELFGUARD_ACCESS_ISOLATED,'yes','Requires disposable test database');
+ const db=new Db(),service=new AccessObservationService(db,new Platform(db)),admin={email:'admin-test',role:'ADMIN'};
+ try{
+  let release;const hold=new Promise(resolve=>{release=resolve});const budgetFirst=service.ingress(()=>hold),budgetSecond=service.ingress(()=>hold);await assert.rejects(()=>service.ingress(async()=>true),error=>error.getStatus()===503);release();await Promise.all([budgetFirst,budgetSecond]);assert.equal(await service.ingress(async()=>true),true);
+  const host=await db.asset.create({data:{hostname:'access-test',os:'linux',tokenHash:'active-agent'}}),other=await db.asset.create({data:{hostname:'other',os:'linux'}});
+  const source=await service.createSource(admin,{name:'Test HTTP',assetId:host.id,protocol:'HTTP',mode:'NETWORK',interface:'lo',address:'127.0.0.1',port:18080,enabled:true,rules:[]});
+  const credential=await service.issueCredential(admin,source.id);
+  const identity=()=>service.probeIdentity({headers:{authorization:'Bearer '+credential.token}});
+  const current=await identity();assert.equal(current.id,source.id);
+  const eventId=randomUUID(),capturedAt=new Date().toISOString(),bytes=Buffer.from('HTTP/1.1 200 OK\r\nContent-Length: 4\r\n\r\n\x00a\xffb','latin1'),sha256=createHash('sha256').update(bytes).digest('hex');
+  const part={eventId,direction:'RESPONSE',sequence:0,capturedAt,sha256,data:bytes.toString('base64')};
+  assert.equal((await service.receiveChunk(current,part)).persisted,true);
+  assert.equal((await service.receiveChunk(current,part)).duplicate,true);
+  await assert.rejects(()=>service.receiveChunk(current,{...part,sha256:'a'.repeat(64)}));
+  const event={eventId,startedAt:capturedAt,endedAt:capturedAt,sessionId:randomUUID(),operation:'GET',route:'/example',result:'SUCCESS',completeness:'COMPLETE',gaps:[],requestBytes:0,responseBytes:bytes.length,objects:[],chunks:[{direction:'RESPONSE',sequence:0,capturedAt,sha256,bytes:bytes.length}]};
+  const saved=await service.receiveEvent(current,event);assert.equal(saved.accepted,true);
+  assert.equal((await service.receiveEvent(current,event)).duplicate,true);
+  const second=await service.receiveEvent(current,{...event,eventId:randomUUID(),responseBytes:0,chunks:[]});assert.notEqual(saved.id,second.id);
+  await assert.rejects(()=>service.receiveEvent(current,{...event,route:'/changed'}));
+  const list=await service.list(admin,{});assert.equal(list.total,2);assert.ok(!JSON.stringify(list).includes(bytes.toString('base64')));
+  const row=await service.detail(admin,saved.id);assert.equal(row.chunks.length,1);
+  const raw=await service.readChunk(admin,saved.id,row.chunks[0].id,'READ');assert.deepEqual(Buffer.from(raw.data,'base64'),bytes);
+  const viewer={email:'viewer-test',role:'VIEWER',dataScope:{restricted:true,assetIds:[host.id],databaseInstanceIds:[],businesses:[],canReadEvidence:true}};
+  assert.equal((await service.list(viewer,{})).total,2);await assert.rejects(()=>service.readChunk(viewer,saved.id,row.chunks[0].id,'READ'));
+  const denied={...viewer,dataScope:{...viewer.dataScope,assetIds:[other.id]}};assert.equal((await service.list(denied,{})).total,0);await assert.rejects(()=>service.detail(denied,saved.id));
+  await db.accessEvidenceChunk.update({where:{id:row.chunks[0].id},data:{capturedAt:new Date(Date.now()-8*86400000),expiresAt:new Date(Date.now()-86400000)}});
+  await assert.rejects(()=>service.readChunk(admin,saved.id,row.chunks[0].id,'READ'));
+  const instance=await db.databaseInstance.create({data:{name:'Redis object fixture',stableKey:randomUUID(),engine:'redis',owner:'test',hostIds:[host.id]}});const objectSource=await service.createSource(admin,{name:'Object source',assetId:host.id,instanceId:instance.id,protocol:'REDIS',mode:'NETWORK',interface:'lo',address:'127.0.0.1',port:6379,enabled:true,rules:[]});await service.issueCredential(admin,objectSource.id);const objectIdentity=await db.accessSource.findUniqueOrThrow({where:{id:objectSource.id}});await service.receiveEvent(objectIdentity,{...event,eventId:randomUUID(),responseBytes:0,chunks:[],objects:[{database:'0',table:'sg:*',columns:[]}]});assert.equal((await service.list(admin,{objectDatabase:'0',objectTable:'sg:*'})).total,1);assert.equal((await service.list(admin,{objectTable:'other:*'})).total,0);assert.equal(await db.dataObject.count({where:{instanceId:instance.id,table:'sg:*'}}),1);
+  const storage=new StorageController(db);await storage.configure({user:admin},{effectiveAccessDays:7,effectiveAccessLimit:100,accessEvidenceQuotaGiB:1});await db.accessObservation.update({where:{id:second.id},data:{createdAt:new Date(Date.now()-9*86400000)}});const cleaned=await service.cleanup(true);assert.equal(cleaned.indicesDeleted,1);assert.equal(await db.accessObservation.findUnique({where:{id:second.id}}),null);const status=await storage.status({user:admin});assert.equal(status.accessEvidence.bodyDays,7);assert.equal(status.accessEvidence.indexDays,7);assert.equal(status.counts.effectiveAccess,2);
+  const orphanPart={...part,eventId:randomUUID(),sha256:createHash('sha256').update(Buffer.from('orphan')).digest('hex')},orphanObject=await service.store().put({sourceId:source.id,eventId:orphanPart.eventId,direction:'RESPONSE',sequence:0,capturedAt,sha256:orphanPart.sha256},Buffer.from('orphan'));
+  const {utimes}=require('node:fs/promises'),path=require('node:path');await utimes(path.join(process.env.ACCESS_EVIDENCE_DIR,orphanObject),new Date(Date.now()-7200000),new Date(Date.now()-7200000));
+  const gate=Promise.withResolvers(),entered=Promise.withResolvers();const held=db.$transaction(async tx=>{await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(current_schema()),hashtext('access-evidence-capacity'))::text`;entered.resolve();await gate.promise;},{timeout:30000});await entered.promise;let swept=false;const sweeping=service.cleanup().then(()=>{swept=true});try{await new Promise(resolve=>setTimeout(resolve,300));assert.equal(swept,false,'orphan cleanup ignored the admission lock');}finally{gate.resolve();await held;await sweeping;}
+  await service.updateSource(admin,source.id,{version:source.version,enabled:false});await assert.rejects(identity);
+  const audits=await db.audit.findMany({where:{action:'ACCESS_EVIDENCE_READ'}});assert.equal(audits.length,1);assert.ok(!JSON.stringify(audits).includes(bytes.toString('base64')));
+  const mysqlInstance=await db.databaseInstance.create({data:{name:'Classification MySQL fixture',stableKey:randomUUID(),engine:'mysql',owner:'test',hostIds:[host.id]}});
+  const definition=await db.dataClassification.create({data:{instanceId:mysqlInstance.id,engine:'mysql',database:'crm',table:'customers',column:'phone',category:'个人信息',level:5,handling:'受控读取',status:'ACTIVE',reason:'isolated fixture'}});
+  const rule={id:'sensitive-volume',name:'敏感超量读取',category:'BEHAVIOR',detector:'SENSITIVE_READ',severity:'MEDIUM',minimumLevel:3,minimumBytes:1000,operations:[]};
+  const routeSource=await service.createSource(admin,{name:'HTTP registered classification',assetId:host.id,instanceId:mysqlInstance.id,protocol:'HTTP',mode:'NETWORK',interface:'lo',address:'127.0.0.1',port:18081,enabled:true,rules:[rule],objectMappings:[{kind:'HTTP_ROUTE',route:'/api/customers',methods:['GET'],objects:[{database:'crm',table:'customers',columns:['phone']}]}]});
+  await service.issueCredential(admin,routeSource.id);const routeIdentity=await db.accessSource.findUniqueOrThrow({where:{id:routeSource.id}});
+  const observed={...event,eventId:randomUUID(),startedAt:new Date().toISOString(),endedAt:new Date().toISOString(),route:'/api/customers',completeness:'PARTIAL',gaps:['BODY_NOT_CAPTURED'],responseBytes:999,chunks:[]};
+  const normal=await service.receiveEvent(routeIdentity,observed),normalRow=await service.detail(admin,normal.id);assert.equal(normalRow.level,5);assert.equal(normalRow.metadata.riskAssessment.status,'ORDINARY');assert.equal(normalRow.findingIds.length,0);assert.equal(normalRow.classification.objectResolution.basis,'REGISTERED_HTTP_ROUTE');
+  const alarm=await service.receiveEvent(routeIdentity,{...observed,eventId:randomUUID(),responseBytes:1000}),alarmRow=await service.detail(admin,alarm.id);assert.equal(alarmRow.findingIds.length,1);const finding=await db.finding.findUniqueOrThrow({where:{id:alarmRow.findingIds[0]}});assert.equal(finding.severity,'CRITICAL');assert.equal(alarmRow.metadata.riskAssessment.rules[0].baseSeverity,'MEDIUM');assert.equal(alarmRow.metadata.riskAssessment.rules[0].classificationFloor,'CRITICAL');
+  assert.equal((await service.list(admin,{sourceId:routeSource.id,objectDatabase:'crm',objectTable:'customers',objectColumn:'phone'})).total,2);
+  await db.dataClassification.update({where:{id:definition.id},data:{level:2,version:2}});assert.equal((await service.detail(admin,alarm.id)).level,5);assert.equal((await service.receiveEvent(routeIdentity,observed)).duplicate,true);
+  const otherInstance=await db.databaseInstance.create({data:{name:'Other host classification',stableKey:randomUUID(),engine:'mysql',owner:'test',hostIds:[other.id]}});await assert.rejects(()=>service.updateSource(admin,routeSource.id,{version:routeSource.version,instanceId:otherInstance.id}));
+  await assert.rejects(()=>service.updateSource(admin,routeSource.id,{version:routeSource.version,instanceId:null}));assert.equal((await service.detail(admin,alarm.id)).source.instanceId,mysqlInstance.id);
+  await db.dataClassification.create({data:{instanceId:mysqlInstance.id,engine:'mysql',database:'crm',category:'个人信息',level:5,handling:'受控读取',status:'ACTIVE',reason:'broad database fixture'}});
+  const unmatched=await service.receiveEvent(routeIdentity,{...observed,eventId:randomUUID(),route:'/not-registered',database:'crm',responseBytes:1000,objects:[{database:'crm',table:'customers',columns:['phone']}]});const unmatchedRow=await service.detail(admin,unmatched.id);assert.equal(unmatchedRow.level,null);assert.equal(unmatchedRow.findingIds.length,0);
+  const pgInstance=await db.databaseInstance.create({data:{name:'PostgreSQL metadata fixture',stableKey:randomUUID(),engine:'postgresql',owner:'test',hostIds:[host.id]}});await db.dataClassification.create({data:{instanceId:pgInstance.id,engine:'postgresql',database:'crm',schema:'public',table:'customers',column:'phone',category:'个人信息',level:4,handling:'受控读取',status:'ACTIVE',reason:'isolated fixture'}});
+  const mapping={kind:'POSTGRES_COLUMN',database:'crm',relationOid:123,attributeNumber:2,schema:'public',table:'customers',column:'phone',observedAt:new Date(Date.now()-1000).toISOString()};
+  const pgSource=await service.createSource(admin,{name:'PG metadata mapping',assetId:host.id,instanceId:pgInstance.id,protocol:'POSTGRESQL',mode:'NETWORK',interface:'lo',address:'127.0.0.1',port:5432,enabled:true,rules:[],objectMappings:[mapping]});await service.issueCredential(admin,pgSource.id);let pgIdentity=await db.accessSource.findUniqueOrThrow({where:{id:pgSource.id}});
+  const pgEvent={...observed,eventId:randomUUID(),operation:'SELECT',route:undefined,database:'crm',relations:[{database:'crm',relationOid:123,attributeNumber:2}]};const pgSaved=await service.receiveEvent(pgIdentity,pgEvent);assert.equal((await service.detail(admin,pgSaved.id)).level,4);
+  await service.updateSource(admin,pgSource.id,{version:pgSource.version,objectMappings:[{...mapping,observedAt:new Date(Date.now()-25*3600000).toISOString()}]});pgIdentity=await db.accessSource.findUniqueOrThrow({where:{id:pgSource.id}});const stale=await service.receiveEvent(pgIdentity,{...pgEvent,eventId:randomUUID()});const staleRow=await service.detail(admin,stale.id);assert.equal(staleRow.level,null);assert.equal(staleRow.classification.objectResolution.status,'STALE');
+  const sources=await service.sources(admin,{});assert.ok(sources.items.find(s=>s.id===pgSource.id).lastAccessAt);assert.equal(sources.items.find(s=>s.id===pgSource.id).collection.state,'AWAITING_PROBE');assert.ok(!JSON.stringify(sources).includes(credential.token));
+  console.log('Access ordinary/replay/binary/scope/raw-permission/expiry/revocation and HTTP/PG classification-risk snapshot checks passed');
+ }finally{await db.$disconnect();}
+}
+main().catch(e=>{console.error(e.message);process.exitCode=1});

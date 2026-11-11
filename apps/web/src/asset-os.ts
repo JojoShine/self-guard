@@ -1,4 +1,10 @@
 type Choice={value:string;label:string;family:string;group:string;versions:string[]};
+export function isLinuxAsset(asset:{os?:unknown;inventory?:unknown}):boolean{
+ const inventory=asset.inventory;
+ const observed=inventory&&typeof inventory==='object'&&'os' in inventory?inventory.os:undefined;
+ if(typeof observed==='string'&&observed.trim())return observed.trim().toLowerCase()==='linux';
+ return typeof asset.os==='string'&&/^(?:linux\b|ubuntu\b|debian\b|centos\b|rocky\b|almalinux\b|red hat\b|rhel\b|alpine\b|fedora\b|opensuse\b|suse\b|kylin\b|uos\b|openeuler\b|anolis\b|opencloudos\b|alinux\b|阿里云\s*linux|银河麒麟|中标麒麟|统信)/i.test(asset.os.trim());
+}
 const linux=(value:string,label:string,versions:string[],domestic=false):Choice=>({value,label,versions,family:'linux',group:domestic?'国产主流 Linux':'常见 Linux 发行版'});
 // Registration choices describe the asset; they are independent of feed/Agent compatibility.
 export const assetOSChoices:Choice[]=[

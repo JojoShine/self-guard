@@ -35,3 +35,28 @@ func TestDistributionParsing(t *testing.T) {
 		t.Fatal(d, s)
 	}
 }
+
+func TestKylinMilestoneCollection(t *testing.T) {
+	root := t.TempDir()
+	release := filepath.Join(root, "os-release")
+	os.WriteFile(release, []byte("ID=kylin\nVERSION_ID=V10\nNAME=\"Kylin Linux Advanced Server\"\n"), 0600)
+	for milestone, want := range map[string]string{"10-SP1-Release-Build09-20210524": "V10SP1", "10-SP2-Release-Build09-20210524": "V10SP2", "10-SP3-Release-Build09-20230524": "V10SP3", "10-SP3-2403-Release-Build01": "V10SP3-2403"} {
+		os.WriteFile(filepath.Join(root, ".kyinfo"), []byte("[dist]\nname=Kylin-Server\nmilestone="+milestone+"\n[servicekey]\nkey=private-key-never-reported\n"), 0600)
+		d, s := distributionInventory(release)
+		if !s.Complete || d.KylinRelease != want || d.Name != "Kylin Linux Advanced Server" {
+			t.Fatalf("%s: %#v %#v", milestone, d, s)
+		}
+	}
+	for _, body := range []string{"[dist]\nname=Kylin-Desktop\nmilestone=10-SP3-Release\n", "[dist]\nname=Kylin-Server\nmilestone=10-SP3.1-Release\n", "[dist]\nname=Kylin-Server\nmilestone=10-SP1\nmilestone=10-SP3\n"} {
+		os.WriteFile(filepath.Join(root, ".kyinfo"), []byte(body), 0600)
+		d, s := distributionInventory(release)
+		if s.Complete || d.KylinRelease != "" {
+			t.Fatalf("ambiguous Kylin branch accepted: %#v", d)
+		}
+	}
+	os.Remove(filepath.Join(root, ".kyinfo"))
+	d, s := distributionInventory(release)
+	if s.Complete || d.KylinRelease != "" {
+		t.Fatal("missing SP accepted")
+	}
+}

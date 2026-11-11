@@ -1,26 +1,23 @@
 import {describe,it,expect,vi} from 'vitest';
-import React from 'react';
+vi.mock('./api',()=>({api:vi.fn()}));
 import {renderToStaticMarkup} from 'react-dom/server';
-vi.stubGlobal('sessionStorage',{getItem:()=>null,setItem:vi.fn(),removeItem:vi.fn()});
-const {Dashboard}=await import('./Dashboard');
-const overview={assets:129,risks:157,alerts:20,pendingTasks:27,criticalRisks:2,incidents:23,wafEvents:6,wafBlocked:4,updatedAt:'2026-10-31T00:00:00Z',wafTraffic:{nodes:2,totalRequests:1200,blockedRequests:4,observedRequests:8,upstreamErrors:1,basis:'真实节点进程累计统计'},recent:[{id:'fixture',title:'配置权限待核对',severity:'HIGH',status:'UNKNOWN',source:'correlation',updatedAt:'2026-10-31T00:00:00Z',evidence:'PRIVATE-DASHBOARD-EVIDENCE',parameters:{private:'PRIVATE-DASHBOARD-PARAMETERS'}}]};
-describe('compact security dashboard',()=>{
- it('retains the eight exact metric groups and real WAF node counter links',()=>{
-  const html=renderToStaticMarkup(<Dashboard overview={overview} onOpen={()=>{}} onMetric={()=>{}}/>);
-  for(const group of ['overviewAssets','overviewRisks','overviewAlerts','overviewTasks','overviewCritical','overviewIncidents','wafEvents','wafBlocked'])expect(html).toContain('data-metric-group="'+group+'"');
-  expect((html.match(/data-metric-group=/g)||[]).length).toBe(8);
-  expect((html.match(/dash-card workload-card /g)||[]).length).toBe(4);
-  for(const label of ['安全运营趋势','业务风险分布','修复结果','我的工作','资产状态','最近发现','请求总量','观察命中','上游错误','结果待确认','关联检测'])expect(html).toContain(label);
-  expect(html).toContain('href="#findings"');expect(html).not.toContain('href="#discoveries"');
-  expect(html).toContain('1,200');expect(html).not.toContain('PRIVATE-DASHBOARD');
- });
- it('escapes source titles and renders only the recent-record metadata',()=>{
-  const html=renderToStaticMarkup(<Dashboard overview={{...overview,recent:[{...overview.recent[0],title:'<img src=x onerror=alert(1)>'}]}} onOpen={()=>{}} onMetric={()=>{}}/>);
-  expect(html).toContain('&lt;img src=x onerror=alert(1)&gt;');expect(html).not.toContain('<img src=x');expect(html).not.toContain('PRIVATE-DASHBOARD');
- });
- it('keeps an empty recent feed compact and does not invent missing WAF readings',()=>{
-  const html=renderToStaticMarkup(<Dashboard overview={{...overview,recent:[],wafTraffic:undefined}} onOpen={()=>{}} onMetric={()=>{}}/>);
-  expect(html).toContain('暂无发现记录');expect(html).toContain('最近 0 条授权记录');
-  expect(html).toContain('请求总量</span><strong>—</strong>');
- });
+import {Dashboard,loadCoreOverview} from './Dashboard';
+const overview={assets:12,instances:3,networkRisks:4,networkAlerts:5,dataAlerts:6,accesses:7,updatedAt:'2026-11-06T00:00:00Z',recent:[{id:'one',kind:'RISK',title:'<img src=x onerror=alert(1)>',severity:'HIGH',status:'OPEN',securityDomain:'NETWORK',source:'vulnerability',updatedAt:'2026-11-06T00:00:00Z',evidence:'PRIVATE-DASHBOARD'}]};
+describe('core security dashboard',()=>{
+ it('shows the core metrics and no workflow or WAF operations',()=>{const html=renderToStaticMarkup(<Dashboard overview={overview} onOpen={()=>{}} onMetric={()=>{}}/>);for(const label of ['主机资产','数据实例','漏洞与配置风险','网络告警','数据告警','访问记录'])expect(html).toContain(label);for(const label of ['WAF','待我审批','修复结果','我的任务','未结案调查'])expect(html).not.toContain(label);expect(html).not.toContain('PRIVATE-DASHBOARD');expect(html).toContain('&lt;img');expect(html).not.toContain('<img src=x');});
+ it('offers a short path from collection to evidence and keeps asset totals secondary',()=>{const html=renderToStaticMarkup(<Dashboard overview={overview} onOpen={()=>{}} onMetric={()=>{}}/>);expect((html.match(/class="core-entry-card"/g)||[])).toHaveLength(3);for(const route of ['enroll','network-hosts','network-alerts'])expect(html).toContain('href="#'+route+'"');expect(html.indexOf('需要关注')).toBeLessThan(html.indexOf('当前管理范围'));});
+ it('queries scoped lists without querying legacy WAF or workflow summaries',async()=>{const request=vi.fn(async(path:string)=>({total:2,items:path.includes('/findings?')?[overview.recent[0]]:[]}));const result=await loadCoreOverview(request);expect(result.instances).toBe(2);expect(result.recent).toHaveLength(1);const paths=request.mock.calls.map(([path])=>path);expect(paths).toHaveLength(6);expect(paths.some(path=>path.includes('securityDomain=NETWORK')&&path.includes('kind=ALERT'))).toBe(true);expect(paths.some(path=>path.includes('securityDomain=DATA')&&path.includes('kind=ALERT'))).toBe(true);expect(paths.some(path=>/waf|overview|workload|tasks/.test(path))).toBe(false);});
+ it('fails visibly rather than inventing zero readings',async()=>{await expect(loadCoreOverview(async()=>{throw Error('授权已失效')})).rejects.toThrow('授权已失效');const html=renderToStaticMarkup(<Dashboard overview={{...overview,recent:[]}} onOpen={()=>{}} onMetric={()=>{}}/>);expect(html).toContain('暂无待确认问题');});
+});
+
+it('counts only unconfirmed records and links to exactly that state',async()=>{
+ const paths:string[]=[];
+ await loadCoreOverview(async path=>{paths.push(path);return {total:2,items:[]}});
+ const problems=paths.filter(path=>path.startsWith('/findings?'));
+ expect(problems).toHaveLength(3);
+ for(const path of problems)expect(new URLSearchParams(path.split('?')[1]).get('status')).toBe('OPEN');
+ const html=renderToStaticMarkup(<Dashboard overview={{...overview,assets:0,instances:0,recent:[]}} onOpen={()=>{}} onMetric={()=>{}}/>);
+ expect(html).toContain('href="#enroll"');
+ expect(html).toContain('没有待确认记录不代表已完成安全检查');
+ expect(html.indexOf('待确认')).toBeLessThan(html.indexOf('主机资产'));
 });

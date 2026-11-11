@@ -1,3 +1,11 @@
+import {storeHostMetrics} from './monitoring';
+import {monitorReportInput} from './traffic-monitor-contract';
+import {storeMonitorReport,monitorDesired} from './traffic-monitor';
+import type {Response} from 'express';
+import {readHostWafImage} from './host-waf-image';
+import {databaseEventInput} from './database-contract';
+import {ingestDatabaseEvents} from './database-audit';
+import {recordCandidates} from './asset-discovery';
 import {HostWafController} from './host-waf';
 import {trafficCaptureInput} from './traffic-capture';
 import {wafPublicTrustRoot} from './waf-runtime';
@@ -23,6 +31,8 @@ import {
   Body,
   Req,
   Param,
+  Query,
+  Res,
   Inject,
   UnauthorizedException,
   BadRequestException,
@@ -110,14 +120,21 @@ export class AgentController {
       return {ok:true,historyRetained:true};
     });
   }
+  @Get("traffic-monitor/:id") async trafficMonitorControl(@Req()req:any,@Param("id")id:string){const asset=await this.identity(req);return this.db.$transaction(async tx=>{await this.currentIdentity(tx,asset.id,req);return monitorDesired(tx,asset.id,id)})}
   @Post("network-report") async networkReport(@Req()req:any,@Body()body:unknown){
     const asset=await this.identity(req);
-    const v=parse(z.union([trafficCaptureInput,z.object({schema:z.literal('selfguard-nginx-v1'),siteId:z.string().uuid(),status:z.enum(['VERIFIED','FAILED','ROLLED_BACK']),mode:z.enum(['OBSERVE','BLOCK']),message:z.string().max(1000),updatedAt:z.string().datetime(),transactionDir:z.string().max(1000)}).strict()]),body);
+    const v=parse(z.union([monitorReportInput,trafficCaptureInput,z.object({schema:z.literal('selfguard-nginx-v1'),siteId:z.string().uuid(),status:z.enum(['VERIFIED','FAILED','ROLLED_BACK']),mode:z.enum(['OBSERVE','BLOCK']),message:z.string().max(1000),updatedAt:z.string().datetime(),transactionDir:z.string().max(1000)}).strict()]),body);
     return this.db.$transaction(async tx=>{await this.currentIdentity(tx,asset.id,req);
+      if(v.schema==='selfguard-traffic-monitor-v1')return storeMonitorReport(tx,asset.id,v);
       const key=(v.schema==='selfguard-traffic-v1'?'traffic-capture:':'host-waf-status:')+asset.id;
       if(v.schema==='selfguard-nginx-v1'){const assignment=await tx.setting.findUnique({where:{key:'host-waf-site:'+v.siteId}});if((assignment?.value as any)?.assetId!==asset.id)throw new UnauthorizedException('站点没有分配到当前资产');await tx.setting.update({where:{key:assignment!.key},data:{value:{assetId:asset.id,status:v.status==='VERIFIED'?'ACTIVE':v.status==='ROLLED_BACK'?'PENDING':(assignment!.value as any).status||'PENDING'}}});}
       await tx.setting.upsert({where:{key},create:{key,value:v},update:{value:v}});await this.p.audit(tx,'agent:'+asset.id,'NETWORK_REPORT','assets',asset.id,{schema:v.schema});return {ok:true};
     });
+  }
+  @Get("host-waf/image") async hostWafImage(@Req()req:any,@Query('sha256')sha256:string,@Res()res:Response){
+    const asset=await this.identity(req);if(!/^[a-f0-9]{64}$/.test(sha256||''))throw new BadRequestException('镜像摘要无效');
+    const bindings=await this.db.setting.findMany({where:{key:{startsWith:'host-waf-site:'},value:{path:['assetId'],equals:asset.id}}});if(!bindings.length)throw new UnauthorizedException('此资产没有已授权的同机WAF站点');
+    const architecture=String((asset.inventory as {architecture?:string})?.architecture||'');const bytes=await readHostWafImage(architecture,sha256);await this.db.audit.create({data:{actor:'agent:'+asset.id,action:'HOST_WAF_IMAGE_DOWNLOAD',resource:'assets',resourceId:asset.id,detail:{sha256,architecture,size:bytes.length}}});res.setHeader('Content-Type','application/x-tar');res.setHeader('Content-Length',bytes.length);res.setHeader('Cache-Control','private, no-store');res.send(bytes);
   }
   @Post("host-waf/installation-plan") async hostWafInstallationPlan(@Req()req:any,@Body()body:unknown){
     const asset=await this.identity(req),v=parse(z.object({installationId:z.string().uuid()}).strict(),body);
@@ -144,6 +161,7 @@ export class AgentController {
       return {token,nodeId:'host-'+asset.id};
     });
   }
+  @Post('database-audit') async databaseAudit(@Req()req:any,@Body()body:unknown){const asset=await this.identity(req);const v=parse(z.object({events:z.array(databaseEventInput).min(1).max(100)}).strict(),body);return this.db.$transaction(async tx=>{await this.currentIdentity(tx,asset.id,req);return ingestDatabaseEvents(tx,this.p,v.events,asset.id);},{timeout:30000});}
   @Post("heartbeat") async heartbeat(@Req() req: any, @Body() body: unknown) {
     const a = await this.identity(req);
     const v = parse(
@@ -151,7 +169,7 @@ export class AgentController {
         .object({
           inventory: z.record(z.string(), z.unknown()).default({}),
           findings: z
-            .array(findingInput.omit({ assetId: true }))
+            .array(findingInput.omit({ assetId: true, instanceId:true }))
             .max(100)
             .default([]),
         })
@@ -163,7 +181,13 @@ export class AgentController {
         const previous=await this.currentIdentity(tx,a.id,req);
         const current=await tx.asset.update({where:{id:a.id},data:{lastSeen:new Date(),inventory:v.inventory as any}});
         await recordAssetChange(tx,a.id,previous,current,'agent:'+a.id);
-        for (const f of v.findings) await this.p.ingest(tx, f, a.id);
+        if(v.inventory.resourceMetrics!==undefined)await storeHostMetrics(tx,this.p,a.id,v.inventory.resourceMetrics);
+        await recordCandidates(tx,current,v.inventory);
+        for(const f of v.findings){
+         let ruleId:string|undefined;try{const evidence=JSON.parse(f.evidence);if(typeof evidence?.ruleId==='string')ruleId=evidence.ruleId;}catch{}
+         const rule=ruleId?await tx.rule.findUnique({where:{id:ruleId}}):null;const instanceId=(rule?.config as {instanceId?:string}|undefined)?.instanceId;
+         if(instanceId){const instance=await tx.databaseInstance.findFirst({where:{id:instanceId,hostIds:{has:a.id},archivedAt:null}});if(!instance)throw new BadRequestException('数据库规则实例不在此Agent采集范围');await this.p.ingest(tx,{...f,instanceId},undefined,rule?.config);}else await this.p.ingest(tx,f,a.id,rule?.config);
+        }
         // Exact package matches are deliberately explicit, never infer vulnerable version ordering.
         const packages = Array.isArray(v.inventory.packages)
           ? v.inventory.packages.slice(0, 5000)
@@ -180,13 +204,16 @@ export class AgentController {
   }
   @Get("policy") async policy(@Req() req: any) {
     const asset=await this.identity(req);
+    const instances=typeof req.query?.capabilities==='string'&&req.query.capabilities.split(',').includes('data-security-v2')?await this.db.databaseInstance.findMany({where:{hostIds:{has:asset.id},archivedAt:null},select:{id:true,engine:true,auditSources:true}}):[];
+    const instanceIds=new Set(instances.map(i=>i.id));
     return {
       asset:{id:asset.id,tags:asset.tags,business:asset.business},
+      databaseSources:instances.flatMap(instance=>{const sources=z.array(z.object({assetId:z.string(),path:z.string(),format:z.string()})).parse(instance.auditSources);return sources.filter(source=>source.assetId===asset.id).map(source=>({instanceId:instance.id,engine:instance.engine,path:source.path,service:source.format}));}),
       rules: (await this.db.rule.findMany({
         where: { enabled: true, kind: { in: ["BASELINE", "LOG", "FIM"] } },
         orderBy: { id: "asc" },
         
-      })).filter(rule=>!requiresDataSecurity(rule.config)||(typeof req.query?.capabilities==="string"&&req.query.capabilities.split(",").includes("data-security-v1"))),
+      })).filter(rule=>!(rule.config as {instanceId?:string})?.instanceId||instanceIds.has((rule.config as {instanceId:string}).instanceId)).filter(rule=>!['DATABASE_ACTIVITY','DATABASE_ACCESS'].includes((rule.config as {type?:string})?.type||'')&&!(rule.config as {instanceId?:string})?.instanceId||(typeof req.query?.capabilities==='string'&&req.query.capabilities.split(',').includes('data-security-v2'))).filter(rule=>!requiresDataSecurity(rule.config)||(typeof req.query?.capabilities==="string"&&req.query.capabilities.split(",").includes("data-security-v1"))),
     };
   }
   @Get("tasks") async tasks(@Req() req: any) {

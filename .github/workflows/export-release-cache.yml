@@ -26,14 +26,14 @@ jobs:
           const fs=require('node:fs'),assert=require('node:assert/strict');
           const m=JSON.parse(fs.readFileSync('release-manifest.json')),a=JSON.parse(fs.readFileSync('acceptance.json'));
           assert.equal(a.status,'PASS');assert.equal(m.version,process.env.RELEASE_VERSION);assert.equal(m.source,'https://github.com/'+process.env.GITHUB_REPOSITORY);assert.match(m.commit,/^[a-f0-9]{40}$/);
-          assert.match(m.appImage,/^ghcr\.io\/jojoshine\/self-guard@sha256:[a-f0-9]{64}$/);assert.match(m.wafImage,/^ghcr\.io\/jojoshine\/self-guard-waf@sha256:[a-f0-9]{64}$/);assert.match(m.postgresImage,/^postgres@sha256:[a-f0-9]{64}$/);assert.equal(m.postgresImage,a.postgresImage);
+          assert.match(m.appImage,/^ghcr\.io\/jojoshine\/self-guard@sha256:[a-f0-9]{64}$/);if(m.wafImage)assert.match(m.wafImage,/^ghcr\.io\/jojoshine\/self-guard-waf@sha256:[a-f0-9]{64}$/);assert.match(m.postgresImage,/^postgres@sha256:[a-f0-9]{64}$/);assert.equal(m.postgresImage,a.postgresImage);
           NODE
       - name: Export the exact published images without rebuilding
         run: |
           printf '%s' "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
           node - <<'NODE'
           const fs=require('node:fs'),{execFileSync}=require('node:child_process'),m=JSON.parse(fs.readFileSync('release-manifest.json'));
-          const refs=[m.appImage,m.wafImage,m.postgresImage];
+          const refs=[m.appImage,m.wafImage,m.postgresImage].filter(Boolean);
           for(const ref of refs)execFileSync('docker',['pull','--platform','linux/amd64',ref],{stdio:'inherit'});
           execFileSync('docker',['image','save','--output','verified-images.tar',...refs],{stdio:'inherit'});
           NODE

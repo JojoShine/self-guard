@@ -1,0 +1,39 @@
+[Unit]
+Description=SelfGuard passive Suricata metadata bridge
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=selfguard-agent
+Group=selfguard-agent
+# Create this dedicated group and grant only EVE read/traverse permission.
+SupplementaryGroups=selfguard-suricata-read
+ExecStart=/opt/selfguard-suricata/selfguard-suricata-bridge --config /etc/selfguard-suricata/config.json
+Restart=on-failure
+RestartSec=15
+UMask=0077
+NoNewPrivileges=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+ReadWritePaths=/var/lib/selfguard-suricata
+ReadOnlyPaths=/var/lib/selfguard-agent/identity.json /etc/selfguard-suricata /var/log/suricata
+MemoryMax=128M
+CPUQuota=25%
+TasksMax=16
+LimitNOFILE=64
+
+[Install]
+WantedBy=multi-user.target

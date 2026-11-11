@@ -3,12 +3,14 @@ import {request} from 'node:https';import {lookup} from 'node:dns';import {creat
 import {Transform} from 'node:stream';
 import {captureRawChunks,recordSourceManifest,onSourceAbort,currentRawArchive} from './intelligence-artifacts';
 export type OfficialByteStream={chunks:AsyncIterable<Uint8Array>;sourceSha256:string;decodedBytes:number;abort:()=>void;generation?:string;crc32c?:string;storedBytes?:number};
-export async function openOfficialStream(url:URL,mode:'HTTP_JSON'|'GZIP_FILE'|'ZIP_FILE'|'TEXT'|'OSV_INDEX'|'OSV_RECORD',transport:typeof request=request):Promise<OfficialByteStream>{
+export async function openOfficialStream(url:URL,mode:'HTTP_JSON'|'GZIP_FILE'|'ZIP_FILE'|'TEXT'|'OSV_INDEX'|'OSV_RECORD'|'KYLIN_FILE',transport:typeof request=request):Promise<OfficialByteStream>{
  const indexSource=url.hostname==='storage.googleapis.com'&&/^\/osv-vulnerabilities\/(?:Go|Maven|PyPI|npm|Rocky%20Linux|Ubuntu)\/modified_id\.csv$/.test(url.pathname);
  const recordSource=url.hostname==='storage.googleapis.com'&&/^\/osv-vulnerabilities\/(?:Go|Maven|PyPI|npm|Rocky%20Linux|Ubuntu)\/(?:[A-Za-z0-9._+-]|%3A|%2B){1,600}\.json$/.test(url.pathname);
- const allowed=indexSource||recordSource||url.hostname==='security-tracker.debian.org'&&url.pathname==='/tracker/data/json'||url.hostname==='nvd.nist.gov'&&/^\/feeds\/json\/cve\/2\.0\/nvdcve-2\.0-(?:\d{4}|modified)\.(?:meta|json\.gz)$/.test(url.pathname)||url.hostname==='storage.googleapis.com'&&/^\/osv-vulnerabilities\/(?:Go|Maven|PyPI|npm|Rocky%20Linux)\/all\.zip$/.test(url.pathname);
+ const kylinSource=url.hostname==='update.cs2c.com.cn'&&/^\/NS\/UpdateInfo\/(?:V10SP[12]|V10SP3(?:-2403)?)\/(?:x86_64|aarch64)\/repodata\/(?:repomd\.xml|[a-f0-9]{64}-updateinfo\.xml\.gz)$/.test(url.pathname);
+ if(kylinSource&&mode!==(url.pathname.endsWith('repomd.xml')?'TEXT':'KYLIN_FILE'))throw Error('麒麟来源传输模式不符');
+ const allowed=kylinSource||indexSource||recordSource||url.hostname==='security-tracker.debian.org'&&url.pathname==='/tracker/data/json'||url.hostname==='nvd.nist.gov'&&/^\/feeds\/json\/cve\/2\.0\/nvdcve-2\.0-(?:\d{4}|modified)\.(?:meta|json\.gz)$/.test(url.pathname)||url.hostname==='storage.googleapis.com'&&/^\/osv-vulnerabilities\/(?:Go|Maven|PyPI|npm|Rocky%20Linux)\/all\.zip$/.test(url.pathname);
  if(!allowed||((mode==='OSV_INDEX')!==indexSource)||((mode==='OSV_RECORD')!==recordSource)||url.protocol!=='https:'||url.port||url.username||url.password||url.search||url.hash)throw Error('完整来源地址不在官方允许范围');
- const metadata=mode==='TEXT'||mode==='OSV_INDEX',smallObject=mode==='OSV_RECORD',transferLimit=smallObject?4*1024*1024:mode==='OSV_INDEX'?64*1024*1024:mode==='TEXT'?32768:mode==='ZIP_FILE'?256*1024*1024:128*1024*1024,decodedLimit=smallObject?4*1024*1024:mode==='OSV_INDEX'?64*1024*1024:mode==='TEXT'?32768:1024*1024*1024;
+ const metadata=mode==='TEXT'||mode==='OSV_INDEX'||mode==='KYLIN_FILE',smallObject=mode==='OSV_RECORD',transferLimit=mode==='KYLIN_FILE'?16*1024*1024:smallObject?4*1024*1024:mode==='OSV_INDEX'?64*1024*1024:mode==='TEXT'?32768:mode==='ZIP_FILE'?256*1024*1024:128*1024*1024,decodedLimit=mode==='KYLIN_FILE'?16*1024*1024:smallObject?4*1024*1024:mode==='OSV_INDEX'?64*1024*1024:mode==='TEXT'?32768:1024*1024*1024;
  return new Promise((resolve,reject)=>{
   let req:ReturnType<typeof request>|undefined,body:any,agent:ReturnType<typeof sourceProxyAgent>=false,headersReceived=false,detach=()=>{};
   const close=()=>{detach();clearTimeout(timer);req?.destroy();body?.destroy();if(agent)agent.destroy()};

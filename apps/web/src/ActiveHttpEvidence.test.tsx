@@ -1,4 +1,4 @@
-import {it,expect} from 'vitest';import {renderToStaticMarkup} from 'react-dom/server';import {ActiveHttpEvidence} from './ActiveHttpEvidence';
+import {it,expect} from 'vitest';import {renderToStaticMarkup} from 'react-dom/server';import {ActiveHttpEvidence,activeScanReason} from './ActiveHttpEvidence';
 it('explains actual response matches and the scanner connection without claiming an attack chain',()=>{
  const html=renderToStaticMarkup(<ActiveHttpEvidence record={{outcome:'CONFIRMED',description:'明确的公开响应标识',remediation:'限制状态页访问并复测',endpoint:{hostname:'owned.fixture.test',port:8089,protocol:'http'},check:{method:'GET',path:'/public/status'},httpProof:{status:200,startedAt:'2026-11-01T00:00:00Z',durationMs:35,bodyBytes:128,responseSha256:'a'.repeat(64),conditions:[{condition:{kind:'BODY_REGEX',value:'service-[0-9]+'},matched:true,observed:'service-42'}],connections:[{source:'172.18.0.3:41230',destination:'172.18.0.9:8089',transport:'TCP'}],requests:[{method:'GET',path:'/public/status',status:200}]}}}/>);for(const text of ['service-42','service-[0-9]+','172.18.0.3:41230','172.18.0.9:8089','限制状态页访问并复测','不代表攻击者流量','不代表成功利用'])expect(html).toContain(text);
 });
@@ -13,4 +13,14 @@ it('explains source text transforms, digest-only extraction and immutable rule p
 
 it('identifies the actual redirect response used for the detailed condition proof',()=>{
  const html=renderToStaticMarkup(<ActiveHttpEvidence record={{outcome:'CONFIRMED',check:{method:'GET',path:'/public/start',rule:{responseMode:'ANY_REDIRECT',maxRedirects:10}},httpProof:{status:302,evaluatedResponseIndex:0,responses:[{path:'/public/start',status:302,outcome:'CONFIRMED',matched:true,bodyBytes:20},{path:'/public/final',status:200,outcome:'NOT_FOUND',matched:false,bodyBytes:20}],requests:[{method:'GET',path:'/public/start',status:302},{method:'GET',path:'/public/final',status:200}],conditions:[{condition:{kind:'STATUS',status:302},matched:true,observed:'302'}]}}}/>);for(const text of ['逐跳响应判断','第1跳 · 详细依据','第2跳','/public/start','/public/final','不跨响应拼接特征','逐跳判断，任一响应命中'])expect(html).toContain(text);
+});
+
+it('explains informational native matches as observations, never unfinished checks or risks',()=>{
+ const html=renderToStaticMarkup(<ActiveHttpEvidence record={{outcome:'OBSERVED',reason:'INFORMATIONAL_RULE_OBSERVED',httpProof:{status:200,native:{engineVersion:'3.11.1',templateSha256:'normalized-proof'}}}}/>);
+ for(const text of ['观察','未生成风险','3.11.1','normalized-proof','原生响应判断'])expect(html).toContain(text);
+ for(const text of ['尚未完成有效判断','未完成响应条件判断'])expect(html).not.toContain(text);
+});
+it('explains frozen budgets and native gaps with actionable human labels',()=>{
+ expect(activeScanReason('TARGET_REQUEST_LIMIT')).toContain('本次预览固定');expect(activeScanReason('TARGET_REQUEST_LIMIT')).not.toContain('300');
+ for(const reason of ['NATIVE_ENGINE_FAILED','NATIVE_RESPONSE_FRAMING_UNSUPPORTED','NATIVE_INTRUSIVE_PATH_UNSUPPORTED','RESPONSE_ENCODING_UNSUPPORTED'])expect(activeScanReason(reason)).not.toBe(reason);
 });

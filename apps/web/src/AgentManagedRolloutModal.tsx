@@ -1,8 +1,9 @@
+import {FormDrawer} from './FormDrawer';
 import {platformURL} from './urls';
 import {AgentPlatformFields} from './AgentPlatformConnection';
 import {managementOptions} from './management-options';
 import {useEffect,useState} from 'react';
-import {Alert,Button,Descriptions,Form,InputNumber,Modal,Space,Select} from 'antd';
+import {Alert,Button,Descriptions,Form,InputNumber,Space,Select} from 'antd';
 import {api} from './api';
 export function AgentManagedRolloutModal({release,onClose,onViewRollouts}:{release:any;onClose:()=>void;onViewRollouts?:()=>void}){
  const [form]=Form.useForm(),[busy,setBusy]=useState(false),[error,setError]=useState(''),[created,setCreated]=useState(false),[assets,setAssets]=useState<any[]>([]),[loading,setLoading]=useState(true);
@@ -13,7 +14,7 @@ export function AgentManagedRolloutModal({release,onClose,onViewRollouts}:{relea
   const targetIds=values.targetIds;if(!targetIds?.length||new Set(targetIds).size!==targetIds.length)throw Error('请选择不重复的升级主机');
   await api('/rollouts',{managedReleaseId:release.id,manifestBytes:release.manifestBytes,signature:release.signature,artifactUrl:platformURL(values.server)+'/api/agent-releases/'+release.id+'/download',targetIds,batchSize:values.batchSize});setCreated(true);
  }catch(e){if(e instanceof Error)setError(e.message);}finally{setBusy(false);}}
- return <Modal className="module-modal" width="min(760px, calc(100vw - 32px))" title="从发行版本创建升级计划" open onCancel={()=>!busy&&onClose()} maskClosable={!busy} closable={!busy} footer={created?<Space size={12}><Button onClick={onClose}>关闭</Button><Button type="primary" aria-label="查看并审批升级计划" onClick={()=>{onClose();if(onViewRollouts)onViewRollouts();else location.hash='rollouts';}}>查看并审批升级计划</Button></Space>:<Space size={12}><Button disabled={busy} onClick={onClose}>取消</Button><Button type="primary" loading={busy} disabled={loading||!platformServer} onClick={()=>void submit()}>创建待审批计划</Button></Space>}>
+ return <FormDrawer className="module-form-drawer" width="min(760px, calc(100vw - 32px))" title="从发行版本创建升级计划" open onCancel={()=>!busy&&onClose()} maskClosable={!busy} closable={!busy} footer={created?<Space size={12}><Button onClick={onClose}>关闭</Button><Button type="primary" aria-label="查看并审批升级计划" onClick={()=>{onClose();if(onViewRollouts)onViewRollouts();else location.hash='rollouts';}}>查看并审批升级计划</Button></Space>:<Space size={12}><Button disabled={busy} onClick={onClose}>取消</Button><Button type="primary" loading={busy} disabled={loading||!platformServer} onClick={()=>void submit()}>创建待审批计划</Button></Space>}>
   <div className="module-stack">
    {error&&<Alert type="error" showIcon message={error}/>}
    {created?<Alert type="success" showIcon message="计划已创建，审批后按金丝雀和固定批次执行" description="下载绑定此计划、目标资产和固定制品；每批等待重启后心跳验收，失败会暂停。"/>:<>
@@ -26,5 +27,5 @@ export function AgentManagedRolloutModal({release,onClose,onViewRollouts}:{relea
     </Form>
    </>}
   </div>
- </Modal>;
+ </FormDrawer>;
 }

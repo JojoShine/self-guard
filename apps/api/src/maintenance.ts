@@ -23,12 +23,12 @@ export class DeliveryService implements OnModuleInit,OnModuleDestroy {
   await this.db.delivery.updateMany({where:{status:'SENDING',updatedAt:{lt:new Date(Date.now()-60000)}},data:{status:'PENDING'}});
   const configs=await this.db.setting.findMany({where:{key:{startsWith:'webhook:'}}});
   for(const c of configs){const config=c.value as any;if(!config.enabled)continue;const userId=c.key.slice(8);const u=await this.db.user.findUnique({where:{id:userId}});if(!u||u.disabled)continue;
-   const candidates=await this.db.notification.findMany({where:{userId,createdAt:{gte:new Date(Date.now()-86400000)}},orderBy:{createdAt:'asc'},take:1000});
+   const candidates=await this.db.notification.findMany({where:{userId,inAppOnly:false,createdAt:{gte:new Date(Date.now()-86400000)}},orderBy:{createdAt:'asc'},take:1000});
    const notes=[];for(const n of candidates){try{if(n.resourceId)await assertScope(this.db,u,n.resource,n.resourceId);notes.push(n)}catch{await this.db.delivery.updateMany({where:{id:n.id,status:{in:['PENDING','SENDING']}},data:{status:'CANCELLED',lastError:'资源授权已变化'}})}}
    await this.db.delivery.createMany({data:notes.map(n=>({id:n.id,userId,notificationId:n.id})),skipDuplicates:true});
    const due=await this.db.delivery.findMany({where:{userId,status:'PENDING',availableAt:{lte:new Date()}},orderBy:{createdAt:'asc'},take:20});
    for(const job of due){const claimed=await this.db.delivery.updateMany({where:{id:job.id,status:'PENDING'},data:{status:'SENDING',attempts:{increment:1}}});if(!claimed.count)continue;
-    const n=await this.db.notification.findUnique({where:{id:job.notificationId}});if(!n){await this.db.delivery.update({where:{id:job.id},data:{status:'CANCELLED'}});continue;}
+    const n=await this.db.notification.findUnique({where:{id:job.notificationId}});if(!n||n.inAppOnly){await this.db.delivery.update({where:{id:job.id},data:{status:'CANCELLED',lastError:n?.inAppOnly?'仅站内提醒':null}});continue;}
     try{const currentUser=await this.db.user.findUnique({where:{id:userId}});if(!currentUser||currentUser.disabled)throw new Error('disabled');if(n.resourceId)await assertScope(this.db,currentUser,n.resource,n.resourceId);}catch{await this.db.delivery.update({where:{id:job.id},data:{status:'CANCELLED',lastError:'资源授权已变化'}});continue;}
     try{await sender(unseal(config.endpoint),unseal(config.secret),{id:n.id,title:n.title,resource:n.resource,resourceId:n.resourceId,createdAt:n.createdAt},job.id);await this.db.delivery.update({where:{id:job.id},data:{status:'DELIVERED',lastError:null}})}catch{await this.db.delivery.update({where:{id:job.id},data:{status:job.attempts>=4?'FAILED':'PENDING',availableAt:new Date(Date.now()+Math.min(3600,30*2**job.attempts)*1000),lastError:'发送失败，可检查接收端后重试；密钥与URL不会写入日志'}})}
    }

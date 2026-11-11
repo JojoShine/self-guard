@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"net/http/httptest"
 	"strings"
 	"testing"
 )
@@ -34,5 +35,21 @@ func TestSecLangDiagnosticTranscriptUsesExecutedMatchesAndIsOptIn(t *testing.T) 
 	json.Unmarshal(diagnostic.Bytes(), &result)
 	if len(result.DiagnosticLog) != 0 {
 		t.Fatal("nolog action ignored")
+	}
+}
+
+func TestMultipartInvalidHeaderDiagnosticUsesActualParserError(t *testing.T) {
+	for _, header := range []string{"\x0eContent-Disposition", "Content-Disposition\x0e", "Content-\x0eDisposition"} {
+		body := "--boundary\r\n" + header + ": form-data; name=\"post\"\r\n\r\nvalue\r\n--boundary--\r\n"
+		r := httptest.NewRequest("POST", "http://fixture.test/", strings.NewReader(body))
+		r.Header.Set("Content-Type", "multipart/form-data; boundary=boundary")
+		state := secRequestState{request: r, body: []byte(body)}
+		input, err := state.load("", false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := input["REQBODY_ERROR_MSG"]; len(got) != 1 || got[0] != errSecMultipartHeader.Error() {
+			t.Fatalf("invalid header parser error lost: %v", got)
+		}
 	}
 }

@@ -23,7 +23,7 @@ const statusLabels: Record<string, string> = { PENDING: "等待处理", RUNNING:
 const date = formatTime;
 const importExample = JSON.stringify({ items: [{ externalId: "scanner-001", title: "检查结果", kind: "RISK", severity: "HIGH", source: "external-scanner", evidence: "外部检查证据" }] }, null, 2);
 
-export function GovernancePanel({ section }: { section: string }) {
+export function GovernancePanel({ section,onOpenFinding,simpleNotifications=false }: { section: string;onOpenFinding?:(id:string)=>void;simpleNotifications?:boolean }) {
   const { message } = App.useApp();
   const [form] = Form.useForm();
   const [settingsForm] = Form.useForm();
@@ -137,20 +137,22 @@ export function GovernancePanel({ section }: { section: string }) {
       <ModuleSection title="通知订阅" description="选择需要接收的站内提醒。">
       <Form form={settingsForm} layout="vertical" className="module-form-grid" disabled={busy} onFinish={v => void save("notification-settings", v)}>
         <Form.Item name="enabled" valuePropName="checked" extra="控制是否生成你的站内提醒，停用不改变实际风险和任务状态。"><Checkbox>启用站内通知</Checkbox></Form.Item>
-        <Form.Item name="approvals" valuePropName="checked" extra="当当前权限允许审批的任务进入待审批时提醒，仍需逐项核对审批依据。"><Checkbox>我可审批的任务</Checkbox></Form.Item>
-        <Form.Item name="taskFailures" valuePropName="checked" extra="只提醒你提交任务的失败情况；请进入任务核对执行与验证结果。"><Checkbox>我提交的任务失败</Checkbox></Form.Item>
+        {!simpleNotifications&&<Form.Item name="approvals" valuePropName="checked" extra="当当前权限允许审批的任务进入待审批时提醒，仍需逐项核对审批依据。"><Checkbox>我可审批的任务</Checkbox></Form.Item>}
+        {!simpleNotifications&&<Form.Item name="taskFailures" valuePropName="checked" extra="只提醒你提交任务的失败情况；请进入任务核对执行与验证结果。"><Checkbox>我提交的任务失败</Checkbox></Form.Item>}
         <Form.Item name="criticalFindings" valuePropName="checked" extra="当严重问题指派给你时提醒，后续处置仍在安全中心完成。"><Checkbox>指派给我的严重问题</Checkbox></Form.Item>
+        <Form.Item name="assignedFindings" valuePropName="checked" extra="仅站内提醒；对当前仍待处理、指派给你的问题首次提醒；通知保留期间不重复生成。"><Checkbox>指派给我的普通问题（站内）</Checkbox></Form.Item>
+        <Form.Item name="overdueFindings" valuePropName="checked" extra="仅站内提醒；通知保留期间，同一处理期限只提醒一次；清理通知后仍未处理的问题可能再次提醒。超期24小时后，向开启此项且有查看权限的管理员升级；修改期限后独立计算。"><Checkbox>问题超期与24小时升级（站内）</Checkbox></Form.Item>
         <Form.Item className="module-field-wide"><Button type="primary" htmlType="submit" loading={busy}>保存订阅</Button></Form.Item>
       </Form>
       </ModuleSection>
       <ModuleSection title="站内通知" extra={<Button loading={loading} disabled={busy} onClick={() => void load()}>刷新通知</Button>}>
       <ModuleToolbar><Text>未读 {data.unread || 0} 条</Text><Button loading={busy} onClick={() => void action(async () => { const result = await api("/governance/notifications/sync", {}); message.success(`新增 ${result.created} 条通知`); setPage(1); await load(1); })}>同步站内待办</Button></ModuleToolbar>
-      <Paragraph className="module-note" type="secondary">根据当前审批权限和负责人分配生成站内通知。列表保存通知生成时的记录，当前状态请进入对应业务页面查看。</Paragraph>
+      <Paragraph className="module-note" type="secondary">按已保存的订阅和当前授权范围生成站内通知。列表保留生成时的记录，当前状态请进入对应问题查看。</Paragraph>
       <Table<any> rowKey="id" loading={loading} dataSource={data.items || []} size="small" scroll={{ x: 760 }} locale={{ emptyText: "暂无站内通知" }} pagination={{...paginationDefaults,current:page,total:data.total||0,pageSize,disabled:loading,onChange:(next,size)=>{const target=size===pageSize?next:1;void load(target,size);}}} columns={[
         { title: "通知", dataIndex: "title" },
         { title: "状态", dataIndex: "readAt", render: v => <StatusTag value={v?"READ":"UNREAD"}/> },
         { title: "时间", dataIndex: "createdAt", render: date },
-        { title: "操作", render: (_, row) => <Space><Button size="small" onClick={() => { location.hash = row.resource === "tasks" ? "tasks" : "findings"; }}>查看{row.resource === "tasks" ? "任务" : "问题"}</Button>{!row.readAt && <Button size="small" disabled={busy} onClick={() => void action(async () => { await api(`/governance/notifications/${row.id}/read`, {}, "PATCH"); await load(); })}>标为已读</Button>}</Space> },
+        { title: "操作", render: (_, row) => <Space><Button size="small" onClick={() => { if(row.resource==='findings'&&row.resourceId&&onOpenFinding){onOpenFinding(row.resourceId);return} location.hash = row.resource === "tasks" ? "tasks" : "findings"; }}>查看{row.resource === "tasks" ? "任务" : "问题"}</Button>{!row.readAt && <Button size="small" disabled={busy} onClick={() => void action(async () => { await api(`/governance/notifications/${row.id}/read`, {}, "PATCH"); await load(); })}>标为已读</Button>}</Space> },
       ]} />
       </ModuleSection>
     </>}

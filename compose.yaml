@@ -33,9 +33,15 @@ services:
       AGENT_PLATFORM_URL: ${AGENT_PLATFORM_URL:-}
       AGENT_PLATFORM_CA_PEM: ${AGENT_PLATFORM_CA_PEM:-}
       AGENT_ARTIFACT_DIR: /var/lib/selfguard/agent-artifacts
+      INTELLIGENCE_HTTPS_PROXY: ${INTELLIGENCE_HTTPS_PROXY:-}
+      INTELLIGENCE_PROXY_DNS_OVER_HTTPS: ${INTELLIGENCE_PROXY_DNS_OVER_HTTPS:-false}
+      ACCESS_EVIDENCE_DIR: /var/lib/selfguard/access-evidence
+      ACCESS_EVIDENCE_MAX_BYTES: ${ACCESS_EVIDENCE_MAX_BYTES:-}
       PORT: 4000
     volumes:
+      - intelligence_artifacts:/var/lib/selfguard/intelligence
       - agent_artifacts:/var/lib/selfguard/agent-artifacts
+      - access_evidence:/var/lib/selfguard/access-evidence
     ports:
       - 127.0.0.1:4010:4000
     depends_on:
@@ -65,5 +71,7 @@ services:
         condition: service_healthy
     restart: unless-stopped
 volumes:
+  intelligence_artifacts:
   postgres_data:
   agent_artifacts:
+  access_evidence:

@@ -78,14 +78,15 @@ type ExtractionEvidence struct {
 	Values        []ExtractedValue `json:"values"`
 }
 type HTTPRule struct {
-	ResponseMode string           `json:"responseMode,omitempty"`
-	Extractors   []ExtractionSpec `json:"extractors,omitempty"`
-	Groups       []ConditionGroup `json:"groups,omitempty"`
-	MaxRedirects *int             `json:"maxRedirects,omitempty"`
-	ID           string           `json:"id"`
-	Description  string           `json:"description"`
-	Operator     string           `json:"operator"`
-	Conditions   []Condition      `json:"conditions"`
+	NativeTemplate *NativeTemplate  `json:"nativeTemplate,omitempty"`
+	ResponseMode   string           `json:"responseMode,omitempty"`
+	Extractors     []ExtractionSpec `json:"extractors,omitempty"`
+	Groups         []ConditionGroup `json:"groups,omitempty"`
+	MaxRedirects   *int             `json:"maxRedirects,omitempty"`
+	ID             string           `json:"id"`
+	Description    string           `json:"description"`
+	Operator       string           `json:"operator"`
+	Conditions     []Condition      `json:"conditions"`
 }
 type ConditionEvidence struct {
 	Observed  string    `json:"observed,omitempty"`
@@ -122,6 +123,7 @@ type ResponseEvidence struct {
 	Matched        bool   `json:"matched"`
 }
 type HTTPProof struct {
+	Native                 *NativeEvidence      `json:"native,omitempty"`
 	EvaluatedResponseIndex *int                 `json:"evaluatedResponseIndex,omitempty"`
 	Responses              []ResponseEvidence   `json:"responses,omitempty"`
 	Extractions            []ExtractionEvidence `json:"extractions,omitempty"`
@@ -169,6 +171,12 @@ type compiledHTTPRule struct {
 func validateHTTPRule(rule HTTPRule, method string) (*compiledHTTPRule, error) {
 	if rule.ID == "" || len(rule.ID) > 200 || rule.Description == "" || len(rule.Description) > 2000 || rule.Operator != "ALL" && rule.Operator != "ANY" || rule.MaxRedirects != nil && (*rule.MaxRedirects < 0 || *rule.MaxRedirects > 10 || rule.ResponseMode != "ANY_REDIRECT" && *rule.MaxRedirects > 3) || rule.ResponseMode != "" && rule.ResponseMode != "FINAL" && rule.ResponseMode != "ANY_REDIRECT" {
 		return nil, errors.New("invalid rule contract")
+	}
+	if rule.NativeTemplate != nil {
+		if err := validateNative(rule, method); err != nil {
+			return nil, err
+		}
+		return &compiledHTTPRule{}, nil
 	}
 	conditions := rule.Conditions
 	if len(rule.Groups) > 0 {
@@ -418,6 +426,10 @@ func (e *Engine) HTTP(ctx context.Context, method, path string, rule HTTPRule) (
 		result.Reason = "RULE_INVALID_OR_UNSUPPORTED"
 		return
 	}
+	if rule.NativeTemplate != nil && !nativePathAllowed(path) {
+		result.Reason = "NATIVE_INTRUSIVE_PATH_UNSUPPORTED"
+		return
+	}
 	relative, err := url.ParseRequestURI(path)
 	if err != nil || relative.IsAbs() || relative.Host != "" {
 		result.Reason = "OUT_OF_SCOPE"
@@ -492,7 +504,7 @@ func (e *Engine) HTTP(ctx context.Context, method, path string, rule HTTPRule) (
 		evaluations := make([]HTTPResult, len(chain))
 		summaries := make([]ResponseEvidence, len(chain))
 		for i, capture := range chain {
-			evaluations[i] = evaluateCapturedResponse(result.Evidence, rule, expressions, capture)
+			evaluations[i] = evaluateCapturedResponse(ctx, result.Evidence, rule, expressions, capture)
 			evaluated := evaluations[i]
 			summaries[i] = ResponseEvidence{Path: capture.path, Status: evaluated.Evidence.Status, ResponseSHA256: evaluated.Evidence.ResponseSHA256, BodyBytes: evaluated.Evidence.BodyBytes, Outcome: evaluated.Outcome, Reason: evaluated.Reason, Matched: evaluated.Outcome == "CONFIRMED"}
 		}
@@ -515,11 +527,11 @@ func (e *Engine) HTTP(ctx context.Context, method, path string, rule HTTPRule) (
 		return
 	}
 	wire, body, reason := boundedResponse(response)
-	result = evaluateCapturedResponse(result.Evidence, rule, expressions, capturedHTTPResponse{response: response, wire: wire, body: body, reason: reason})
+	result = evaluateCapturedResponse(ctx, result.Evidence, rule, expressions, capturedHTTPResponse{response: response, wire: wire, body: body, reason: reason})
 	return
 }
 
-func evaluateCapturedResponse(base HTTPProof, rule HTTPRule, expressions *compiledHTTPRule, capture capturedHTTPResponse) (result HTTPResult) {
+func evaluateCapturedResponse(ctx context.Context, base HTTPProof, rule HTTPRule, expressions *compiledHTTPRule, capture capturedHTTPResponse) (result HTTPResult) {
 	result = HTTPResult{Outcome: "INCONCLUSIVE", Evidence: base}
 	response, wire, body, reason := capture.response, capture.wire, capture.body, capture.reason
 	result.Evidence.Status = response.StatusCode
@@ -548,6 +560,27 @@ func evaluateCapturedResponse(base HTTPProof, rule HTTPRule, expressions *compil
 			result.Reason = "RESPONSE_HEADER_VIEW_INCOMPLETE"
 			return
 		}
+	}
+	if rule.NativeTemplate != nil {
+		snapshot := *response
+		snapshot.Header = response.Header.Clone()
+		snapshot.Body = io.NopCloser(bytes.NewReader(body))
+		serialized, err := httputil.DumpResponse(&snapshot, true)
+		if err != nil || len(serialized) > (1<<20)+(32<<10) {
+			result.Reason = "NATIVE_RESPONSE_FRAMING_UNSUPPORTED"
+			return
+		}
+		matched, proof, err := nativeRun(ctx, rule, &RuleSample{Status: response.StatusCode, Headers: response.Header, Body: string(body), responseProto: response.Proto, responseStatus: response.Status, responseRaw: string(serialized)})
+		if err != nil {
+			result.Reason = "NATIVE_ENGINE_FAILED"
+			return
+		}
+		result.Evidence.Native = proof
+		result.Outcome = "NOT_FOUND"
+		if matched {
+			result.Outcome = "CONFIRMED"
+		}
+		return
 	}
 	matched, conditions, groups := evaluateHTTPRule(rule, expressions.conditions, response.StatusCode, response.Header, body, view)
 	result.Evidence.Conditions = conditions

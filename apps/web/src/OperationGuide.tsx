@@ -7,6 +7,7 @@ import remarkGfm from 'remark-gfm';
 import {Brand} from './Brand';
 import guide from './content/operation-guide.md?raw';
 import './operation-guide.css';
+import {GuideDiagram} from './GuideDiagram';
 
 type Heading={id:string;title:string;level:number};
 const headings:Heading[]=guide.split('\n').flatMap((line,index)=>{
@@ -17,7 +18,7 @@ const chapters:(Heading&{children:Heading[]})[]=[];
 for(const heading of headings){if(heading.level===2)chapters.push({...heading,children:[]});else chapters.at(-1)?.children.push(heading);}
 
 const GuideMarkdown=memo(function GuideMarkdown(){
- return <Markdown skipHtml remarkPlugins={[remarkGfm]} components={{h2:({node,...props})=><h2 {...props} id={'guide-heading-'+node?.position?.start.line}/>,h3:({node,...props})=><h3 {...props} id={'guide-heading-'+node?.position?.start.line}/>,table:({node,...props})=><div className="guide-table-wrapper" role="group" aria-label="说明表格" tabIndex={0}><table {...props}/></div>,pre:({node,...props})=><pre {...props} role="group" aria-label="代码示例" tabIndex={0}/>}}>{guide}</Markdown>;
+ return <Markdown skipHtml remarkPlugins={[remarkGfm]} components={{h2:({node,...props})=><h2 {...props} id={'guide-heading-'+node?.position?.start.line}/>,h3:({node,...props})=><h3 {...props} id={'guide-heading-'+node?.position?.start.line}/>,table:({node,...props})=><div className="guide-table-wrapper" role="group" aria-label="说明表格" tabIndex={0}><table {...props}/></div>,pre:({node,...props})=>{const code=node?.children.find(child=>child.type==='element'&&child.tagName==='code');if(code?.type==='element'&&Array.isArray(code.properties.className)&&code.properties.className.includes('language-mermaid'))return <GuideDiagram source={code.children.flatMap(child=>child.type==='text'?[child.value]:[]).join('')}/>;return <pre {...props} role="group" aria-label="代码示例" tabIndex={0}/>}}}>{guide}</Markdown>;
 });
 
 export function OperationGuide({onReturn}:{onReturn:()=>void}){

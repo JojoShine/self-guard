@@ -26,6 +26,7 @@ func validPackageVersion(value string) bool {
 }
 
 var packageEpoch = regexp.MustCompile(`^[0-9]+$`)
+var rpmSigningKeyVersion = regexp.MustCompile(`^0:[0-9a-f]{8}-[0-9a-f]{8}$`)
 
 func parsePackageMetadata(lines []string, status PackageCollection) ([]Package, PackageCollection) {
 	out := []Package{}
@@ -41,6 +42,11 @@ func parsePackageMetadata(lines []string, status PackageCollection) ([]Package, 
 				continue
 			}
 			status = PackageCollection{Reason: "package installation state missing"}
+			continue
+		}
+		// RPM 4.x stores imported signing keys as pseudo-packages, without an
+		// architecture or source RPM. They are trust records, not installed software.
+		if len(fields) == 6 && fields[5] == "rpm" && fields[0] == "gpg-pubkey" && fields[2] == "(none)" && fields[3] == "" && fields[4] == "(none)" && rpmSigningKeyVersion.MatchString(fields[1]) {
 			continue
 		}
 		p := Package{Name: fields[0], Version: fields[1], Origin: fields[2], SourceVersion: fields[3], Architecture: fields[4], Manager: fields[5]}

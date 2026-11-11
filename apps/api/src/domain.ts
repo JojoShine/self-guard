@@ -18,14 +18,15 @@ export function findingTransition(
         }
       : {
           OPEN: ["IN_PROGRESS", "RESOLVED", "FALSE_POSITIVE"],
-          IN_PROGRESS: ["RESOLVED", "FALSE_POSITIVE"],
+          IN_PROGRESS: ["VERIFYING", "RESOLVED", "FALSE_POSITIVE"],
+          VERIFYING: ["IN_PROGRESS"],
           RESOLVED: ["OPEN"],
           FALSE_POSITIVE: ["OPEN"],
         };
   if (!(map[from] || []).includes(to))
     throw new BadRequestException("非法状态转换；风险关闭需要独立复测");
   if (
-    ["ACCEPTED", "FALSE_POSITIVE", "RESOLVED"].includes(to) &&
+    ["ACCEPTED", "FALSE_POSITIVE", "RESOLVED", "VERIFYING"].includes(to) &&
     !context.reason?.trim()
   )
     throw new BadRequestException("需要处置原因");

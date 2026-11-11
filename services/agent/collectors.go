@@ -18,16 +18,17 @@ type logWindow struct {
 	LastAlert int64
 }
 type fileState struct {
-	Generation   uint64
-	Hash         string
-	Status       string
-	Offset       int64
-	Prefix       string
-	PrefixLength int
-	Identity     string
-	Partial      string
-	Dropping     bool
-	Windows      map[string]logWindow
+	NativeBlocked bool
+	Generation    uint64
+	Hash          string
+	Status        string
+	Offset        int64
+	Prefix        string
+	PrefixLength  int
+	Identity      string
+	Partial       string
+	Dropping      bool
+	Windows       map[string]logWindow
 }
 
 func event(id, title, source string, evidence any) map[string]any {
@@ -39,6 +40,7 @@ func (a *Agent) collectFiles() []map[string]any { return a.collectFilesAt(time.N
 // Cursor, incomplete lines and rolling-window counters are committed only after the report is durable.
 func (a *Agent) collectFilesAt(now time.Time) []map[string]any {
 	a.LogContexts = nil
+	a.DatabaseEvents = nil
 	redactions, redactionErr := compileLogRedactions(a.Config)
 	includeContext := a.Config.LogIncludeMessage && redactionErr == nil
 	state := map[string]fileState{}
@@ -117,6 +119,34 @@ func (a *Agent) collectFilesAt(now time.Time) []map[string]any {
 			}
 			continue
 		}
+
+		paused := false
+		if a.databaseBackpressure() {
+			for _, rule := range a.LogRules {
+				if rule.Config.InstanceID != "" && rule.Config.Path == p {
+					paused = true
+					out = append(out, databaseCoverage(rule, p, "审计独立队列背压，保留本文件游标，主机心跳继续"))
+					break
+				}
+			}
+		}
+		if paused {
+			continue
+		}
+		databasePath := false
+		for _, rule := range a.LogRules {
+			if databaseLogRule(rule.Config) && rule.Config.Path == p {
+				databasePath = true
+				break
+			}
+		}
+		recordFormat := ""
+		for _, rule := range a.LogRules {
+			if rule.Config.Path == p && nativeRecordFormat(rule.Config.Service) {
+				recordFormat = rule.Config.Service
+				break
+			}
+		}
 		f, e := openTarget(p)
 		if e != nil {
 			for _, r := range a.LogRules {
@@ -145,12 +175,26 @@ func (a *Agent) collectFilesAt(now time.Time) []map[string]any {
 			offset = 0
 			prev.Partial = ""
 			prev.Dropping = false
+			prev.NativeBlocked = false
+		}
+		if databaseStatementFormat(recordFormat) && prev.Partial!="" {offset-=int64(len(prev.Partial));if offset<0{offset=0};prev.Partial=""}
+		if prev.NativeBlocked && recordFormat != "" {
+			f.Close()
+			for _, rule := range a.LogRules {
+				if databaseLogRule(rule.Config) && rule.Config.Path == p {
+					out = append(out, databaseCoverage(rule, p, "原生记录超限后暂停本文件，等待日志轮转或明确调整采集；未在记录中间重新解析"))
+					break
+				}
+			}
+			continue
 		}
 		if _, e = f.Seek(offset, io.SeekStart); e != nil {
 			f.Close()
 			continue
 		}
-		b, e := io.ReadAll(io.LimitReader(f, 16<<10))
+		readLimit:=int64(16<<10)
+		if databaseStatementFormat(recordFormat) { readLimit=256<<10 }
+		b, e := io.ReadAll(io.LimitReader(f, readLimit))
 		f.Close()
 		if e != nil {
 			continue
@@ -162,22 +206,42 @@ func (a *Agent) collectFilesAt(now time.Time) []map[string]any {
 		body := prev.Partial + string(b)
 		lines := []string{}
 		for {
-			line, rest, ok := strings.Cut(body, "\n")
+			var line, rest string
+			var ok bool
+			if recordFormat != "" {
+				line, rest, ok = databaseRecord(body, recordFormat)
+			} else {
+				line, rest, ok = strings.Cut(body, "\n")
+			}
+			step := len(body) - len(rest)
 			if !ok {
+				if recordFormat != "" {
+					body = rest
+				}
 				break
 			}
 			if !prev.Dropping && len(line) <= 64<<10 {
 				lines = append(lines, line)
-				if includeContext {
+				if includeContext && !databasePath {
 					a.addLogContext(p, identity, lineOffset, line, redactions, now)
+				}
+			}
+			if len(line) > 64<<10 && databasePath {
+				for _, rule := range a.LogRules {
+					if databaseLogRule(rule.Config) && rule.Config.Path == p {
+						out = append(out, databaseCoverage(rule, p, "单条完整审计记录超过64KiB，已跳过且未生成风险"))
+						break
+					}
 				}
 			}
 			prev.Dropping = false
 			body = rest
-			consumed += len(line) + 1
-			lineOffset += int64(len(line) + 1)
+			consumed += step
+			lineOffset += int64(step)
 			completed++
-			if completed >= 100 {
+			recordLimit:=100
+			if databaseStatementFormat(recordFormat) {recordLimit=1000}
+			if completed >= recordLimit {
 				// Leave unread complete lines in the file, rather than advancing the cursor past the context budget.
 				keep := consumed - partialBytes
 				if keep < 0 {
@@ -192,6 +256,15 @@ func (a *Agent) collectFilesAt(now time.Time) []map[string]any {
 			}
 		}
 		if len(body) > 64<<10 {
+			if recordFormat != "" {
+				prev.NativeBlocked = true
+			}
+			for _, rule := range a.LogRules {
+				if databaseLogRule(rule.Config) && rule.Config.Path == p {
+					out = append(out, databaseCoverage(rule, p, "单条审计记录超过64KiB，已标记采集不完整"))
+					break
+				}
+			}
 			prev.Dropping = true
 			body = ""
 		}
@@ -205,6 +278,15 @@ func (a *Agent) collectFilesAt(now time.Time) []map[string]any {
 		for _, rule := range a.LogRules {
 			if databaseLogRule(rule.Config) {
 				if rule.Config.Path != p {
+					continue
+				}
+
+				if rule.Config.InstanceID != "" {
+					rows, complete := databaseAuditRows(rule, lines)
+					a.DatabaseEvents = append(a.DatabaseEvents, rows...)
+					if !complete {
+						out = append(out, databaseCoverage(rule, p, "标准审计字段缺失或格式不受支持；未识别行不参与风险判定"))
+					}
 					continue
 				}
 				windows, findings := databaseWindows(prev.Windows, rule, p, lines, now)
@@ -224,11 +306,13 @@ func (a *Agent) collectFilesAt(now time.Time) []map[string]any {
 			}
 			activeWindows[rule.ID] = w
 		}
-		if len(b) > 0 {
+		if len(b) > 0 && !databasePath {
 			sum := fmt.Sprintf("%x", sha256.Sum256(b))
 			out = append(out, event(fmt.Sprintf("log:%s:%s:%d:%s", p, identity, offset, sum), "Configured log activity", "agent-log", map[string]any{"path": p, "offset": offset, "bytes": len(b), "sha256": sum, "lines": len(lines)}))
 		}
-		state["log:"+p] = fileState{Offset: offset + int64(len(b)), Prefix: sig, PrefixLength: n, Identity: identity, Partial: body, Dropping: prev.Dropping, Windows: activeWindows}
+		// SQL fragments stay in the source file until complete, never in cursor JSON.
+		if databaseStatementFormat(recordFormat) && len(body)>0 { b=b[:len(b)-len(body)];body="" }
+		state["log:"+p] = fileState{NativeBlocked: prev.NativeBlocked, Offset: offset + int64(len(b)), Prefix: sig, PrefixLength: n, Identity: identity, Partial: body, Dropping: prev.Dropping, Windows: activeWindows}
 	}
 	a.CollectorState = state
 	return out

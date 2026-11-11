@@ -7,16 +7,17 @@ x-app-environment: &app-environment
   BASE_PATH: ${BASE_PATH?set BASE_PATH explicitly}
   DATABASE_URL: ${DATABASE_URL:?set runtime DATABASE_URL}
   ENROLLMENT_TOKEN: ${ENROLLMENT_TOKEN:?set ENROLLMENT_TOKEN}
-  WAF_TOKEN: ${WAF_TOKEN:?set WAF_TOKEN}
   DATA_ENCRYPTION_KEY: ${DATA_ENCRYPTION_KEY:?set DATA_ENCRYPTION_KEY}
   TASK_SIGNING_PRIVATE_KEY: ${TASK_SIGNING_PRIVATE_KEY:?set TASK_SIGNING_PRIVATE_KEY}
   AGENT_UPGRADE_PUBLIC_KEY: ${AGENT_UPGRADE_PUBLIC_KEY:?set AGENT_UPGRADE_PUBLIC_KEY}
   AGENT_PLATFORM_URL: ${AGENT_PLATFORM_URL:?set verified deployment entry}
   AGENT_UPGRADE_ORIGINS: ${AGENT_UPGRADE_ORIGINS:-}
   TRUSTED_PROXY_CIDRS: ${TRUSTED_PROXY_CIDRS:?set controlled proxy addresses}
-  HOST_WAF_IMAGE: ${WAF_IMAGE:?set fixed WAF image}
-  WAF_TEST_URL: http://waf:8082
   WAF_RULE_RUNTIME_ENABLED: 'false'
+  INTELLIGENCE_HTTPS_PROXY: ${INTELLIGENCE_HTTPS_PROXY:-}
+  INTELLIGENCE_PROXY_DNS_OVER_HTTPS: ${INTELLIGENCE_PROXY_DNS_OVER_HTTPS:-false}
+  ACCESS_EVIDENCE_DIR: /var/lib/selfguard/access-evidence
+  ACCESS_EVIDENCE_MAX_BYTES: ${ACCESS_EVIDENCE_MAX_BYTES:-}
 services:
   postgres:
     image: ${POSTGRES_IMAGE:?set digest-pinned POSTGRES_IMAGE}
@@ -56,6 +57,7 @@ services:
     volumes:
       - ./data/intelligence:/var/lib/selfguard/intelligence
       - ./data/agent-artifacts:/var/lib/selfguard/agent-artifacts
+      - ./data/access-evidence:/var/lib/selfguard/access-evidence
     tmpfs: ['/tmp:rw,nosuid,nodev,size=128m,mode=1777']
     read_only: true
     cap_drop: [ALL]
@@ -70,28 +72,6 @@ services:
       postgres: {condition: service_healthy}
     mem_limit: 768m
     cpus: 1.5
-    logging: *logging
-  waf:
-    image: ${WAF_IMAGE:?set digest-pinned WAF_IMAGE}
-    restart: unless-stopped
-    environment:
-      WAF_API_URL: http://app:8080${BASE_PATH?set BASE_PATH explicitly}
-      WAF_ALLOW_HTTP: 'true'
-      WAF_TOKEN: ${WAF_TOKEN:?set WAF_TOKEN}
-      WAF_NODE_ID: self-guard-central
-      WAF_LISTEN: ':8080'
-      WAF_TEST_LISTEN: ':8082'
-      WAF_CONFIG: /state/config.json
-      WAF_STATE_DIR: /state
-    volumes: ['./data/waf:/state']
-    tmpfs: ['/tmp:rw,nosuid,nodev,size=32m,mode=1777']
-    read_only: true
-    cap_drop: [ALL]
-    security_opt: [no-new-privileges:true]
-    depends_on:
-      app: {condition: service_healthy}
-    mem_limit: 256m
-    cpus: 0.5
     logging: *logging
   backup:
     image: ${POSTGRES_IMAGE:?set digest-pinned POSTGRES_IMAGE}

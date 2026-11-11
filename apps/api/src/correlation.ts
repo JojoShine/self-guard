@@ -126,7 +126,7 @@ export class WafPolicyTestController {
   const address=process.env.WAF_TEST_URL;if(!address)throw new BadRequestException('未配置 WAF 测试管理地址');
   const url=new URL(address);if(url.username||url.password||url.search||url.hash||!['http:','https:'].includes(url.protocol))throw new BadRequestException('WAF 测试管理地址无效');
   if(url.protocol!=='https:'&&!['localhost','127.0.0.1','[::1]'].includes(url.hostname)&&process.env.WAF_DEVELOPMENT!=='true')throw new BadRequestException('WAF 测试管理连接需要 HTTPS');
-  let response:Response;try{response=await fetch(address,{method:'POST',redirect:'error',signal:AbortSignal.timeout(15000),headers:{authorization:'Bearer '+process.env.WAF_TOKEN,'content-type':'application/json'},body:JSON.stringify(v)});}catch{throw new ServiceUnavailableException('WAF 测试管理节点不可连接或响应超时');}
+  let response:Response;try{response=await fetch(address,{method:'POST',redirect:'error',signal:AbortSignal.timeout(15000),headers:{authorization:'Bearer '+(process.env.WAF_TEST_TOKEN||process.env.WAF_TOKEN),'content-type':'application/json'},body:JSON.stringify(v)});}catch{throw new ServiceUnavailableException('WAF 测试管理节点不可连接或响应超时');}
   if(!response.ok)throw new BadRequestException('WAF 节点拒绝测试：'+response.status);
   const result=await response.json();
   await this.p.audit(this.db,req.user.email,'TEST','sites',v.siteId,{repeat:v.repeat});

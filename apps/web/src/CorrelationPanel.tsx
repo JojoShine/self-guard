@@ -1,3 +1,4 @@
+import {DetailPanel} from './DetailWorkspace';
 import {RecordFieldsTable} from './RecordFieldsTable';
 import {paginationDefaults,pageWithinTotal} from './pagination';
 import {DateField} from './DateField';
@@ -5,7 +6,7 @@ import {EvidenceView} from './EvidenceView';
 import {ModuleSection,ModuleToolbar,StatusTag,SeverityTag} from './ModuleSection';
 import './detection-panels.css';
 import {useEffect,useRef,useState} from 'react';
-import {Alert,Button,Drawer,Form,Input,InputNumber,Modal,Select,Switch,Table,Tag,Typography} from 'antd';
+import {Alert,Button,Form,Input,InputNumber,Modal,Select,Switch,Table,Tag,Typography} from 'antd';
 import {api} from './api';
 import {displaySource,displaySeverity,formatTime} from './presentation';
 const fields=[['type','事件类型'],['source','来源'],['data.status','响应状态'],['data.method','请求方法'],['data.ruleId','命中规则'],['data.action','动作'],['data.outcome','结果'],['data.category','分类'],['data.message','脱敏消息']].map(([value,label])=>({value,label}));
@@ -64,6 +65,6 @@ export function CorrelationPanel({mode}:{mode:'rules'|'telemetry'|'policy-test'}
  <Form.Item name="siteId" label="站点" rules={[{required:true}]} extra="选择当前授权站点；测试会使用该站点配置，日志查询则仅检索该站点记录。"><Select showSearch optionFilterProp="label" options={siteOptions} style={{width:'100%'}}/></Form.Item><div className="module-form-grid module-field-wide"><Form.Item name="method" label="请求方法" extra="按真实业务选择 HTTP 方法；它会影响规则匹配，但测试请求不会发往业务上游。"><Select style={{width:'100%'}} options={['GET','POST','PUT','PATCH','DELETE','HEAD','OPTIONS'].map(value=>({value,label:value}))}/></Form.Item><Form.Item name="path" label="请求路径及查询参数" rules={[{required:true}]} extra="填写站点内的路径和查询串，例如 /login?user=test；不填写其他站点的完整地址。"><Input style={{width:'100%'}} placeholder="/?q=union%20select"/></Form.Item><Form.Item name="repeat" label="重复次数" extra="在隔离测试中重复同一请求，用于检查频率规则；不代表线上真实访问次数。"><InputNumber min={1} max={100}/></Form.Item></div>
  <Form.Item name="remoteIp" label="模拟客户端 IP" extra="用于隔离测试中的客户端与频率条件，不会向该地址建立连接。"><Input placeholder="默认 192.0.2.1" style={{width:'100%'}}/></Form.Item><Form.Item className="module-field-wide" name="headers" label="请求头（JSON 对象）" extra="填写键值形式的模拟请求头，按真实内容类型提供样本；不要粘贴生产授权令牌。"><Input.TextArea rows={3}/></Form.Item><Form.Item className="module-field-wide" name="body" label="请求正文" extra="填写与请求头内容类型一致的模拟正文，用于检查编码和正文规则；不发送到业务上游。"><Input.TextArea rows={4}/></Form.Item><div className="module-field-wide"><ModuleToolbar><Button type="primary" htmlType="submit" loading={loading} disabled={!canEdit}>执行策略测试</Button>{!canEdit&&<span className="module-note">当前账户无策略测试权限</span>}</ModuleToolbar></div>
  </Form>
- </ModuleSection>}{mode==='policy-test'&&result&&<Drawer open placement="right" title="测试结果" className="record-drawer waf-drawer" width="min(860px, calc(100vw - 24px))" onClose={()=>setResult(undefined)}><ModuleToolbar><Typography.Text>生效版本：{result.version}</Typography.Text></ModuleToolbar><Table<any> pagination={paginationDefaults} scroll={{x:560}} rowKey={(_,i)=>String(i)} dataSource={result.results} columns={[{title:'响应状态',dataIndex:'status'},{title:'决策',dataIndex:'action',render:v=><StatusTag value={v}/>},{title:'命中规则',dataIndex:'ruleId',render:v=>v||'—'}]}/></Drawer>}
+ </ModuleSection>}{mode==='policy-test'&&result&&<DetailPanel open placement="right" title="测试结果" className="record-drawer waf-drawer" width="min(860px, calc(100vw - 24px))" onClose={()=>setResult(undefined)}><ModuleToolbar><Typography.Text>生效版本：{result.version}</Typography.Text></ModuleToolbar><Table<any> pagination={paginationDefaults} scroll={{x:560}} rowKey={(_,i)=>String(i)} dataSource={result.results} columns={[{title:'响应状态',dataIndex:'status'},{title:'决策',dataIndex:'action',render:v=><StatusTag value={v}/>},{title:'命中规则',dataIndex:'ruleId',render:v=>v||'—'}]}/></DetailPanel>}
  </div>
 }

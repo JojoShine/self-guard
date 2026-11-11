@@ -19,7 +19,7 @@ backup_artifacts(){
   case "$artifact_sha" in *[!0-9a-f]*) return 1;; esac
   [ "${#artifact_sha}" -eq 64 ] || return 1
   case "$artifact_size" in ''|*[!0-9]*) return 1;; esac
-  case "$artifact_encoding" in ZIP|GZIP_JSON) :;; *) return 1;; esac
+  case "$artifact_encoding" in ZIP|GZIP_JSON|GZIP_XML) :;; *) return 1;; esac
   destination="$folder/intelligence-objects/$artifact_sha.blob"
   if [ ! -f "$destination" ]; then
    cp "$source_objects/$artifact_sha.blob" "$destination.partial" || return 1

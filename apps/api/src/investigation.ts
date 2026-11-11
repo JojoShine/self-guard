@@ -1,3 +1,4 @@
+import {instanceScope} from './database-instances';
 import {networkResult} from './scan-network-contracts';
 import {NotFoundException} from '@nestjs/common';
 import {Db} from './db';import {assertScope,resourceWhere,restricted,assetScope,evidenceAllowed} from './scope';
@@ -43,7 +44,7 @@ export async function activeFindingEvidence(db:Db,finding:any):Promise<unknown>{
  return {...saved,description:row.execution.evidence.description,templateName:row.templateName,endpointName:row.endpointName,remediation:row.remediation,endpoint:row.endpoint,check:row.check,httpProof:row.execution.evidence,outcome:row.execution.outcome,engineVersion:row.execution.engineVersion,templateSource:row.templateSource,templatePin:row.templatePin,endpointPin:row.endpointPin,meaning:'真实只读HTTP响应满足固定模板条件；扫描连接不代表攻击者流量，也不能据此认定成功利用或完整攻击链。'};
 }
 const assetFields={id:true,hostname:true,ip:true,os:true,business:true,lastSeen:true} as const;
-const signalFields={id:true,externalId:true,title:true,kind:true,severity:true,status:true,source:true,evidence:true,assetId:true,createdAt:true,updatedAt:true} as const;
+const signalFields={id:true,externalId:true,title:true,kind:true,severity:true,status:true,source:true,evidence:true,assetId:true,instanceId:true,createdAt:true,updatedAt:true} as const;
 function value(input:unknown){return typeof input==='string'||typeof input==='number'?String(input).slice(0,500):undefined;}
 export function networkEvidence(signals:any[],sites:any[],events:any[]){
  const relations:any[]=[];const seen=new Set<string>();
@@ -69,11 +70,12 @@ export async function investigationContext(db:Db,user:any,resource:string,id:str
  const [signals,total]=await Promise.all([db.finding.findMany({where,select:signalFields,orderBy:[{updatedAt:'desc'},{id:'asc'}],skip:(page-1)*pageSize,take:pageSize}),db.finding.count({where})]);
  const assetIds=[...new Set([...signals.map(f=>f.assetId).filter(Boolean),...('assetIds' in record?record.assetIds:[])])].slice(0,100) as string[];
  const assets=await db.asset.findMany({where:{AND:[{id:{in:assetIds}},await resourceWhere(db,user,'assets')]},select:assetFields,orderBy:{hostname:'asc'}});
+ const instanceIds=signals.flatMap(f=>f.instanceId?[f.instanceId]:[]);const instances=await db.databaseInstance.findMany({where:{AND:[instanceScope(user),{id:{in:instanceIds}}]},select:{id:true,name:true,engine:true,business:true,owner:true}});
  const findings=evidenceAllowed(user)?await Promise.all(signals.map(async signal=>({...signal,evidence:signal.source==='active-scan'?await activeFindingEvidence(db,signal):await inventoryFindingEvidence(db,signal)}))):signals;
  const objects=signals.map(f=>evidenceObject(f.evidence));const siteIds=[...new Set(objects.map(e=>e.siteId).filter((v):v is string=>typeof v==='string'))].slice(0,100);
  const sites=restricted(user)?[]:await db.site.findMany({where:{id:{in:siteIds}},select:{id:true,name:true,hostname:true,upstream:true}});
  const eventIds=[...new Set(objects.flatMap(e=>Array.isArray(e.eventIds)?e.eventIds.filter((v:unknown)=>typeof v==='string'):[]))].slice(0,100) as string[];
  const allowedAssets=restricted(user)?await db.asset.findMany({where:assetScope(user),select:{id:true}}):undefined;
  const events=eventIds.length?await db.telemetryEvent.findMany({where:{id:{in:eventIds},expiresAt:{gt:new Date()},...(allowedAssets?{assetId:{in:allowedAssets.map(a=>a.id)}}:{})},select:{id:true,source:true,type:true,assetId:true,occurredAt:true,data:true},orderBy:[{occurredAt:'asc'},{id:'asc'}],take:100}):[];
- return {resource,id,page,pageSize,total,evidence:{description:'description' in record?record.description:undefined,assets,findings,events,network:networkEvidence(findings,sites,events),coverage:{findingPage:page,findingsOnPage:signals.length,totalFindings:total,referencedEventLimit:100,returnedEvents:events.length}}};
+ return {resource,id,page,pageSize,total,evidence:{description:'description' in record?record.description:undefined,assets,instances,findings,events,network:networkEvidence(findings,sites,events),coverage:{findingPage:page,findingsOnPage:signals.length,totalFindings:total,referencedEventLimit:100,returnedEvents:events.length}}};
 }

@@ -1,0 +1,1 @@
+ALTER TABLE "AccessSource" ADD COLUMN "profile" JSONB NOT NULL DEFAULT '{}';

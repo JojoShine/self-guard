@@ -17,9 +17,10 @@ jobs:
       - name: Build immutable candidate components
         run: |
           docker build --target runtime --build-arg SOURCE_REVISION="$GITHUB_SHA" -t self-guard-ci:app .
-          docker build --target runtime --build-arg SOURCE_REVISION="$GITHUB_SHA" -f services/waf/Dockerfile -t self-guard-ci:waf .
       - name: Verify complete production topology in isolation
-        run: node scripts/deployment-ci.cjs
+        run: |
+          docker run --rm -v "$PWD:/workspace:ro" -w /app --entrypoint node self-guard-ci:app --test /workspace/scripts/production-topology.test.cjs
+          node scripts/deployment-ci.cjs
       - name: Package static assets and deployment files
         run: |
           mkdir -p .artifacts/candidate/web/self-guard .artifacts/candidate
@@ -35,9 +36,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           printf '%s' "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
-          for component in app waf; do
+          for component in app; do
             image=ghcr.io/jojoshine/self-guard
-            if [ "$component" = waf ]; then image=ghcr.io/jojoshine/self-guard-waf; fi
             docker tag "self-guard-ci:$component" "$image:sha-$GITHUB_SHA"
             docker push "$image:sha-$GITHUB_SHA"
           done

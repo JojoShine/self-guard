@@ -94,26 +94,36 @@ type Pending struct {
 	Body json.RawMessage
 }
 type Agent struct {
-	PolicyFindings []map[string]any
-	LogContexts    []hostLogContext
-	serviceRunner  func(context.Context, ...string) (string, error)
-	serviceTimeout time.Duration
-	RemoteChecks   []Check
-	RemoteFIM      []string
-	LogRules       []PolicyRule
-	CollectorState map[string]fileState
-	Config         Config
-	Identity       Identity
-	Client         *http.Client
-	Queue          []Pending
-	Done           map[string]Result
-	Ack            map[string]bool
+	ResourcePrevious      *resourceCounters
+	DatabaseEvents        []map[string]any
+	DatabaseQueue         []Pending
+	DatabaseDeliveryError string
+	PolicyFindings        []map[string]any
+	LogContexts           []hostLogContext
+	serviceRunner         func(context.Context, ...string) (string, error)
+	serviceTimeout        time.Duration
+	RemoteChecks          []Check
+	RemoteFIM             []string
+	LogRules              []PolicyRule
+	CollectorState        map[string]fileState
+	Config                Config
+	Identity              Identity
+	Client                *http.Client
+	Queue                 []Pending
+	Done                  map[string]Result
+	Ack                   map[string]bool
 }
 
 func writePrivate(path string, v any) error {
 	b, e := json.Marshal(v)
 	if e != nil {
 		return e
+	}
+	if filepath.Base(path) == "database-queue.json" {
+		b, e = sealDatabaseQueue(path, b)
+		if e != nil {
+			return e
+		}
 	}
 	f, e := os.OpenFile(path+".tmp", os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0600)
 	if e != nil {
@@ -144,6 +154,12 @@ func read(path string, v any) error {
 	}
 	if e != nil {
 		return e
+	}
+	if filepath.Base(path) == "database-queue.json" {
+		b, e = openDatabaseQueue(path, b)
+		if e != nil {
+			return e
+		}
 	}
 	return json.Unmarshal(b, v)
 }
@@ -184,7 +200,7 @@ func New(c Config) (*Agent, error) {
 	for _, x := range []struct {
 		p string
 		v any
-	}{{"identity.json", &a.Identity}, {"queue.json", &a.Queue}, {"done.json", &a.Done}, {"ack.json", &a.Ack}} {
+	}{{"identity.json", &a.Identity}, {"queue.json", &a.Queue}, {"database-queue.json", &a.DatabaseQueue}, {"done.json", &a.Done}, {"ack.json", &a.Ack}} {
 		if e = read(filepath.Join(c.StateDir, x.p), x.v); e != nil {
 			return nil, e
 		}
@@ -406,6 +422,7 @@ func (a *Agent) cycle() error {
 		return e
 	}
 	online := a.flush() == nil
+	a.flushDatabaseReports()
 	if online {
 		online = a.sendResults() == nil
 	}
@@ -416,9 +433,10 @@ func (a *Agent) cycle() error {
 	packageList, packageStatus := packages()
 	distribution, distributionStatus := distributionInventory("/etc/os-release")
 	ports, portStatus := portInventory("/proc/net")
+	connections, connectionStatus := connectionInventory("/proc/net")
 	services, serviceStatus := serviceInventory()
 	components, componentStatus := applicationInventory(a.Config.AllowedRoot, a.Config.ApplicationInputs)
-	if e := a.heartbeat(map[string]any{"hostname": host, "os": runtime.GOOS, "architecture": runtime.GOARCH, "distribution": distribution, "distributionCollection": distributionStatus, "cpus": runtime.NumCPU(), "components": components, "componentCollection": componentStatus, "packages": packageList, "packageCollection": packageStatus, "ports": ports, "portCollection": portStatus, "services": services, "serviceCollection": serviceStatus, "upgradeStatus": a.upgradeStatus(), "agentDiagnostics": map[string]any{"version": agentVersion, "managedReleaseDownload": true, "capabilities": []string{"data-security-v1", "traffic-capture-v1", "nginx-onboarding-v1"}, "proxyMode": a.Config.ProxyMode, "readOnlyCollector": a.Config.ReadOnly, "executorEnabled": a.Config.ExecutorSocket != "", "queuedReports": len(a.Queue), "previousDeliverySucceeded": online, "maxCPUs": a.Config.MaxCPUs, "maxMemoryBytes": a.Config.MaxMemoryBytes, "maxQueueBytes": a.Config.MaxQueueBytes, "bytesPerSecond": a.Config.BytesPerSecond}}, findings); e != nil {
+	if e := a.heartbeat(map[string]any{"hostname": host, "os": runtime.GOOS, "architecture": runtime.GOARCH, "distribution": distribution, "distributionCollection": distributionStatus, "cpus": runtime.NumCPU(), "components": components, "componentCollection": componentStatus, "packages": packageList, "packageCollection": packageStatus, "observedAt": time.Now().UTC(), "resourceMetrics": a.collectResourceMetrics(), "ports": ports, "portCollection": portStatus, "connections": connections, "connectionCollection": connectionStatus, "services": services, "serviceCollection": serviceStatus, "upgradeStatus": a.upgradeStatus(), "agentDiagnostics": map[string]any{"version": agentVersion, "managedReleaseDownload": true, "databaseAuditQueuedBatches": len(a.DatabaseQueue), "databaseAuditDeliveryStatus": a.DatabaseDeliveryError, "capabilities": []string{"host-metrics-v1", "data-security-v1", "data-security-v2", "database-statements-v1", "traffic-capture-v1", "traffic-monitor-v1", "port-process-v1", "nginx-onboarding-v1"}, "proxyMode": a.Config.ProxyMode, "readOnlyCollector": a.Config.ReadOnly, "executorEnabled": a.Config.ExecutorSocket != "", "queuedReports": len(a.Queue), "previousDeliverySucceeded": online, "maxCPUs": a.Config.MaxCPUs, "maxMemoryBytes": a.Config.MaxMemoryBytes, "maxQueueBytes": a.Config.MaxQueueBytes, "bytesPerSecond": a.Config.BytesPerSecond}}, findings); e != nil {
 		return e
 	}
 	if e := a.commitCollectors(); e != nil {
@@ -427,6 +445,7 @@ func (a *Agent) cycle() error {
 	if e := a.flush(); e != nil {
 		return e
 	}
+	a.flushDatabaseReports()
 	if err := a.rolloutCycle(); err != nil {
 		return err
 	}
@@ -457,6 +476,32 @@ func (a *Agent) cycle() error {
 	return a.sendResults()
 }
 func main() {
+	if len(os.Args) == 2 && os.Args[1] == "--resource-metrics-snapshot" {
+		snapshotAgent := &Agent{}
+		snapshotAgent.collectResourceMetrics()
+		time.Sleep(250 * time.Millisecond)
+		body, err := json.Marshal(snapshotAgent.collectResourceMetrics())
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "resource metrics serialization failed")
+			os.Exit(1)
+		}
+		fmt.Fprintln(os.Stdout, string(body))
+		return
+	}
+	if len(os.Args) == 2 && os.Args[1] == "--database-fixture" {
+		body, err := io.ReadAll(io.LimitReader(os.Stdin, 2<<20))
+		if err == nil {
+			var out string
+			out, err = databaseFixture(string(body))
+			if err == nil {
+				fmt.Println(out)
+				return
+			}
+		}
+		fmt.Fprintln(os.Stderr, "invalid database fixture")
+		os.Exit(1)
+	}
+
 	if len(os.Args) == 3 && os.Args[1] == "--expire-traffic" {
 		if err := expireTrafficCapture(os.Args[2]); err != nil {
 			fmt.Fprintln(os.Stderr, err)
@@ -465,6 +510,20 @@ func main() {
 		return
 	}
 
+	if len(os.Args) == 3 && os.Args[1] == "--rollback-nginx-plan" {
+		if err := runNginxPlanRollback(os.Args[2], os.Stdout); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
+	if len(os.Args) == 3 && os.Args[1] == "--preflight-nginx" {
+		if err := runNginxPreflight(os.Args[2], os.Stdout); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
 	if len(os.Args) == 3 && os.Args[1] == "--onboard-nginx" {
 		if err := runHostWafOnboarding(os.Args[2], os.Stdout); err != nil {
 			fmt.Fprintln(os.Stderr, err)
@@ -487,6 +546,13 @@ func main() {
 		return
 	}
 
+	if len(os.Args) == 3 && os.Args[1] == "--monitor-traffic" {
+		if err := runTrafficMonitor(os.Args[2]); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
 	if len(os.Args) == 4 && os.Args[1] == "--capture-traffic" {
 		if err := runTrafficCapture(os.Args[2], os.Args[3], os.Stdout); err != nil {
 			fmt.Fprintln(os.Stderr, err)

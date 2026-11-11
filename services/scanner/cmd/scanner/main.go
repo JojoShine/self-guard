@@ -127,6 +127,19 @@ func run(input io.Reader, output io.Writer) error {
 	if cmd.NetworkSample != nil || cmd.Kind != "CHECK_NETWORK" && cmd.NetworkRule != nil {
 		return errors.New("network fields cannot cross command boundaries")
 	}
+	if cmd.Kind == "COMPILE_NATIVE_RULE" {
+		if cmd.Sample != nil || cmd.Path != "" || len(cmd.BlockedRanges) > 0 || !reflect.DeepEqual(cmd.Target, scanner.Target{}) {
+			return errors.New("compile cannot include targets or samples")
+		}
+		result, err := scanner.CompileNativeRule(cmd.Method, cmd.Rule)
+		if err != nil {
+			return err
+		}
+		return json.NewEncoder(output).Encode(struct {
+			Kind   string                     `json:"kind"`
+			Result scanner.NativeCompileProof `json:"result"`
+		}{"NATIVE_COMPILE_RESULT", result})
+	}
 	if cmd.Kind == "CHECK_RULE" {
 		if cmd.Sample == nil || cmd.Path != "" || len(cmd.BlockedRanges) > 0 || cmd.Target.Hostname != "" || cmd.Target.Port != 0 || cmd.Target.Protocol != "" || len(cmd.Target.Addresses) > 0 || len(cmd.Target.AllowedPaths) > 0 || len(cmd.Target.ExcludedPaths) > 0 {
 			return errors.New("offline rule cannot include a network target")
@@ -155,7 +168,7 @@ func run(input io.Reader, output io.Writer) error {
 	}
 	encoder := json.NewEncoder(output)
 	if cmd.Kind == "CHECK_SCOPE" {
-		if cmd.Method != "" || cmd.Path != "" || cmd.Rule.ID != "" || cmd.Rule.Description != "" || cmd.Rule.Operator != "" || len(cmd.Rule.Conditions) > 0 || len(cmd.Rule.Groups) > 0 || cmd.Rule.MaxRedirects != nil || len(cmd.Rule.Extractors) > 0 || cmd.Rule.ResponseMode != "" {
+		if cmd.Method != "" || cmd.Path != "" || cmd.Rule.ID != "" || cmd.Rule.Description != "" || cmd.Rule.Operator != "" || len(cmd.Rule.Conditions) > 0 || len(cmd.Rule.Groups) > 0 || cmd.Rule.MaxRedirects != nil || len(cmd.Rule.Extractors) > 0 || cmd.Rule.ResponseMode != "" || cmd.Rule.NativeTemplate != nil {
 			return errors.New("scope preflight cannot include a request")
 		}
 		target, err := policy.Validate(context.Background())

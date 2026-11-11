@@ -1,3 +1,4 @@
+import {instanceScope} from './database-instances';
 import {Body,Controller,Get,Inject,Param,Post,Query,Req,UseGuards} from '@nestjs/common';
 import {z} from 'zod';
 import {Db} from './db';
@@ -6,7 +7,7 @@ import {assetScope,assertGlobal,restricted,resourceWhere} from './scope';
 import {parse,text} from './validation';
 import {componentPageInput} from './construction-contracts';
 
-const resourceInput=z.enum(['assets','findings','tasks','sites','businesses']);
+const resourceInput=z.enum(['assets','findings','tasks','sites','businesses','database-instances']);
 const flag=z.enum(['true','false']).transform(value=>value==='true');
 const queryInput=componentPageInput.extend({selected:text.optional(),assetId:z.string().uuid().optional(),kind:z.enum(['RISK','ALERT']).optional(),status:z.string().max(40).optional(),activeOnly:flag.optional(),unbatched:flag.optional()}).strict();
 const fields={assets:{id:true,hostname:true,ip:true,business:true,archivedAt:true},findings:{id:true,title:true,kind:true,status:true,assetId:true},tasks:{id:true,title:true,status:true,assetId:true,batchId:true},sites:{id:true,name:true,hostname:true,enabled:true}};
@@ -17,6 +18,9 @@ export class RecordOptionsController{
  constructor(@Inject(Db)private db:Db){}
  @Get(':resource')async list(@Req()req:any,@Param('resource')raw:string,@Query()query:unknown){
   const resource=parse(resourceInput,raw),value=parse(queryInput,query);
+  if(resource==='database-instances'){
+   const where={AND:[instanceScope(req.user),...(value.selected?[{id:parse(z.string().uuid(),value.selected)}]:[]),...(value.q?[{name:{contains:value.q,mode:'insensitive' as const}}]:[]),...(value.activeOnly?[{archivedAt:null}]:[])]};const[items,total]=await Promise.all([this.db.databaseInstance.findMany({where,select:{id:true,name:true,engine:true,archivedAt:true},orderBy:[{name:'asc'},{id:'asc'}],take:value.selected?1:value.pageSize,skip:value.selected?0:(value.page-1)*value.pageSize}),this.db.databaseInstance.count({where})]);return {items,total};
+  }
   if(resource==='businesses'){
    const names=restricted(req.user)?[...new Set([...(req.user.dataScope.businesses||[]),...(await this.db.asset.findMany({where:assetScope(req.user),select:{business:true},distinct:['business']})).map(asset=>asset.business).filter(Boolean)])]:null;
    const where={AND:[...(names?[{name:{in:names as string[]}}]:[]),...(value.q?[{name:{contains:value.q,mode:'insensitive' as const}}]:[]),...(value.selected?[{name:value.selected}]:[])]};

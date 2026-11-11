@@ -2,6 +2,7 @@
 set -eu
 cd "$(dirname "$0")/.."
 mkdir -p .artifacts/results .artifacts/go-cache .artifacts/bin
+docker run --rm -v "$PWD:/workspace" -w /workspace/services/scanner -e GOCACHE=/workspace/.artifacts/go-cache golang:1.27.3-alpine sh -c 'go test ./... && CGO_ENABLED=0 go build -trimpath -o /workspace/.artifacts/bin/scanner.next ./cmd/scanner && mv /workspace/.artifacts/bin/scanner.next /workspace/.artifacts/bin/scanner'
 docker compose -f compose.dev.yaml restart api
 # Wait for an actual HTTP response; startup includes migration and compilation.
 docker compose -f compose.dev.yaml exec -T api node -e 'async function wait(){for(let i=0;i<90;i++){try{const r=await fetch("http://127.0.0.1:4000/api/assets");if(r.status===401)return;}catch{}await new Promise(r=>setTimeout(r,1000));}throw Error("API startup timeout")}wait().catch(e=>{console.error(e.message);process.exit(1)})'

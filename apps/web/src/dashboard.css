@@ -39,3 +39,17 @@
 :root .dash-metric.ant-btn>.dash-metric-copy{display:flex}:root .dash-metric.ant-btn>.dash-metric-icon{display:grid}:root .dash-bar-row.ant-btn{align-items:stretch}:root .dash-bar-row.ant-btn>.dash-bar-label{display:flex;width:100%}:root .dash-bar-row.ant-btn>.dash-bar-track{display:block}
 :root .dash-metric.ant-btn:not(:disabled):hover{color:var(--sg-text);background:var(--sg-surface-subtle);border-color:var(--sg-border-strong)}.dash-root .dash-record-title.ant-btn:not(:disabled):hover{color:var(--sg-primary);background:transparent}
 .dash-trend-feedback+.dash-trend-plot{margin-top:16px}
+
+.core-entry-section>h2{font-size:var(--sg-font-section);font-weight:600;margin:0 0 16px}
+.core-entry-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px}
+.core-entry-card{position:relative;display:flex;flex-direction:column;align-items:flex-start;gap:12px;min-width:0;padding:var(--sg-space-panel);background:var(--sg-surface);border:1px solid var(--sg-border);border-radius:var(--sg-radius-card);color:var(--sg-text);text-decoration:none;transition:border-color .15s,background-color .15s}
+.core-entry-card:hover{border-color:var(--sg-primary);background:var(--sg-primary-soft);color:var(--sg-text)}
+.core-entry-card:focus-visible{outline:2px solid var(--sg-primary);outline-offset:3px}
+.core-entry-icon{display:flex;padding:10px;background:var(--sg-primary-soft);color:var(--sg-primary);border-radius:var(--sg-radius-control);font-size:20px}
+.core-entry-card h3{font-size:var(--sg-font-section);font-weight:600;margin:0}.core-entry-card p{font-size:var(--sg-font-label);color:var(--sg-text-secondary);margin:0;padding-right:20px}
+.core-entry-arrow{position:absolute;right:20px;bottom:20px;color:var(--sg-primary)}
+@media(max-width:1100px){.core-entry-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:600px){.core-entry-grid{grid-template-columns:minmax(0,1fr)}.core-entry-card{padding:16px}}
+
+.core-dashboard .core-attention-metrics,.core-dashboard .core-start-grid{grid-template-columns:repeat(3,minmax(0,1fr))}
+@media(max-width:800px){.core-dashboard .core-attention-metrics,.core-dashboard .core-start-grid{grid-template-columns:minmax(0,1fr)}}

@@ -1,0 +1,7 @@
+import {it,expect,vi} from 'vitest';
+import {renderToStaticMarkup} from 'react-dom/server';
+vi.mock('./api',()=>({api:vi.fn()}));
+import {RecordWorkflowEditor} from './RecordWorkflowEditor';
+it('core findings offer assignment, deadlines and self-claim without executable repair controls',()=>{const html=renderToStaticMarkup(<RecordWorkflowEditor simple currentUserEmail="analyst@example.test" record={{id:'r',kind:'RISK',status:'OPEN',owner:'other',dueAt:'2026-11-10T00:00:00Z'}} resource="findings" canEdit onChanged={()=>{}}/>);for(const label of ['更新处置状态','负责人','处理期限','分派负责人','由我跟进'])expect(html).toContain(label);for(const label of ['修复任务','审批'])expect(html).not.toContain(label)});
+it('read-only users cannot assign, claim or verify findings',()=>{const html=renderToStaticMarkup(<RecordWorkflowEditor simple currentUserEmail="viewer@example.test" record={{id:'r',kind:'ALERT',status:'VERIFYING'}} resource="findings" canEdit={false} onChanged={()=>{}}/>);expect(html).toContain('disabled');expect(html).toContain('登记复查结果');expect(html).toContain('修改需要处置权限')});
+it('verified closure is exposed separately from processing state',()=>{const html=renderToStaticMarkup(<RecordWorkflowEditor simple record={{id:'r',kind:'ALERT',status:'VERIFYING'}} resource="findings" canEdit onChanged={()=>{}}/>);expect(html).toContain('登记复查结果');expect(html).toContain('独立复查');expect(html).not.toContain('一键修复')});

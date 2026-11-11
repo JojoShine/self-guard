@@ -1,0 +1,2 @@
+# LOCAL ISOLATED LAB ONLY. Not a production threat rule.
+alert http any any -> any any (msg:"SELFGUARD LAB synthetic HTTP marker"; flow:established,to_server; http.uri; content:"/selfguard-lab-marker"; sid:9900001; rev:1; classtype:misc-activity;)

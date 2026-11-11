@@ -200,3 +200,17 @@ func TestVersionCLIUsesTheVerifiedOriginalArchiveProtocol(t *testing.T) {
 		}
 	}
 }
+
+func TestUbuntuProfileAllowsCurrentLargeOfficialRecordButKeepsUpperBound(t *testing.T) {
+	for _, test := range []struct {
+		size    int
+		allowed bool
+	}{{5 << 20, true}, {8 << 20, false}} {
+		document := `{"id":"USN-OFFICIAL-LARGE","affected":[{"package":{"ecosystem":"Ubuntu:22.04:LTS","name":"example"}}],"details":"` + strings.Repeat("x", test.size) + `"}`
+		file, data := archiveFixture(t, fixtureEntry{"USN-OFFICIAL-LARGE.json", document, 0})
+		err := readUbuntuArchive(file, digest(data), &bytes.Buffer{}, "22.04")
+		if (err == nil) != test.allowed {
+			t.Fatalf("size=%d allowed=%v error=%v", test.size, test.allowed, err)
+		}
+	}
+}

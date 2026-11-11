@@ -3,9 +3,12 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
+	"time"
 )
 
 func TestAccessQueueDurableBatchAckAndOverflow(t *testing.T) {
@@ -61,4 +64,52 @@ func TestAccessQueueDurableBatchAckAndOverflow(t *testing.T) {
 	if err != nil || q.count() != 1000 {
 		t.Fatal("ACK not durable", err, q.count())
 	}
+}
+
+func TestAcknowledgedQueueFileRemovalDoesNotHoldAppendMutex(t *testing.T) {
+	q, err := openAccessQueue(t.TempDir(), 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = q.append(AccessEntry{ID: "owned-record", Status: 200}); err != nil {
+		t.Fatal(err)
+	}
+	arrived, ack := make(chan struct{}), make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		io.Copy(io.Discard, r.Body)
+		close(arrived)
+		<-ack
+		w.WriteHeader(201)
+	}))
+	defer server.Close()
+	done := make(chan error, 1)
+	go func() { done <- q.deliver(server.Client(), server.URL, "test-token", "node") }()
+	<-arrived
+	q.mu.Lock()
+	held := true
+	defer func() {
+		if held {
+			q.mu.Unlock()
+		}
+		<-done
+	}()
+	close(ack)
+	deadline := time.Now().Add(time.Second)
+	removed := false
+	for time.Now().Before(deadline) {
+		files, e := os.ReadDir(q.dir)
+		if e != nil {
+			t.Fatal(e)
+		}
+		if len(files) == 0 {
+			removed = true
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+	if !removed {
+		t.Fatal("acknowledged file deletion waits for append mutex; disk I/O stalls new durable records")
+	}
+	q.mu.Unlock()
+	held = false
 }

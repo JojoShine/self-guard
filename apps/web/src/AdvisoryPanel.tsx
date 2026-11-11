@@ -1,9 +1,10 @@
+import {FormDrawer} from './FormDrawer';
 import {IntelligencePanel} from './IntelligencePanel';
 import {paginationDefaults} from './pagination';
 import {ModuleSection,ModuleToolbar,StatusTag} from './ModuleSection';
 import './detection-panels.css';
 import { useEffect, useState } from "react";
-import { Alert, App, Button, Form, Input, Modal, Select, Space, Switch, Table, Typography, Tabs } from "antd";
+import { Alert, App, Button, Form, Input, Select, Space, Switch, Table, Typography, Tabs } from "antd";
 import { api } from "./api";
 import {formatTime} from './presentation';
 
@@ -76,7 +77,7 @@ function LegacyAdvisoryPanel() {
     ]} />
     <Typography.Paragraph className="module-note" type="secondary">展示最近 100 个数据源。通告同步不会自动执行检测；请在检测规则中发起检测。停用来源或修改地址会停用该来源已生成的规则，启用后需要重新同步。</Typography.Paragraph>
     </ModuleSection>
- <Modal centered className="module-modal" title={editing ? "编辑漏洞数据源" : "添加漏洞数据源"} open={open} closable={!saving} maskClosable={!saving} cancelButtonProps={{disabled:saving}} onCancel={() => !saving&&setOpen(false)} onOk={() => void save()} confirmLoading={saving} okText="保存数据源">
+ <FormDrawer className="module-form-drawer" title={editing ? "编辑漏洞数据源" : "添加漏洞数据源"} open={open} closable={!saving} maskClosable={!saving} cancelButtonProps={{disabled:saving}} onCancel={() => !saving&&setOpen(false)} onOk={() => void save()} confirmLoading={saving} okText="保存数据源">
       {error && <Alert type="error" message={error} style={{ marginBottom: 12 }} />}
       <Form form={form} layout="vertical" className="detection-form module-form-grid" disabled={saving}>
         <Form.Item name="name" label="数据源名称" extra="为历史通告转规则任务命名，便于区分来源。" rules={[{ required: true, whitespace: true, max: 500 }]}><Input placeholder="例如 Debian 安全通告" /></Form.Item>
@@ -85,7 +86,7 @@ function LegacyAdvisoryPanel() {
         <Form.Item name="enabled" label="启用来源" extra="停用来源会停用该来源已生成的规则，重新启用后需同步。" valuePropName="checked"><Switch /></Form.Item>
         <Alert className="module-field-wide" type="warning" showIcon message="停用来源或修改地址会停用已有来源规则；重新启用后需同步。单次响应最多 2 MiB，10 秒超时；失败可重试。" />
       </Form>
-    </Modal>
+    </FormDrawer>
   </div>;
 }
 

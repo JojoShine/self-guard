@@ -1,3 +1,15 @@
+import {ProbeRuleLibraryController} from './probe-rule-library';
+import {VulnerabilityWorkspaceController} from './vulnerability-workspace';
+import {PostgresMonitoringController,PostgresMonitoringService} from './postgres-monitor';
+import {MonitoringController} from './monitoring';
+import {FindingTriageController} from './finding-triage';
+import {SecurityReadinessController} from './security-readiness';
+import {NetworkSensorsController,SensorIngestController} from './network-sensors';
+import {RuleSourceStatusController} from './rule-source-status';
+import {AccessObservationService,AccessObservationsController,AccessSourcesController,AccessProbeController} from './access-observation';
+import {DatabaseInstancesController} from './database-instances';
+import {AssetDiscoveryController} from './asset-discovery';
+import {DataGovernanceController} from './data-governance';
 import {DeploymentHealthController} from './deployment-health';
 import {basePath} from './platform-path';
 import {AgentPlatformController} from './agent-platform';
@@ -84,7 +96,7 @@ class Errors implements ExceptionFilter {
   }
 }
 @Module({
-  controllers: [DeploymentHealthController,AgentPlatformController,AssetRemoteController,HostWafController,ScanExecutionIdentitiesController,RecordOptionsController,ActiveScansController,ScanTemplatesController,ScanEndpointsController,ScansController,VulnerabilityFeedsController,WafBundlesController,WafDeploymentsController,SshInstallationsController,AgentReleasesController,InstallationsController,AgentBootstrapController,
+  controllers: [ProbeRuleLibraryController,VulnerabilityWorkspaceController,PostgresMonitoringController,MonitoringController,FindingTriageController,SecurityReadinessController,NetworkSensorsController,SensorIngestController,AccessObservationsController,AccessSourcesController,AccessProbeController,RuleSourceStatusController,DatabaseInstancesController,AssetDiscoveryController,DataGovernanceController,DeploymentHealthController,AgentPlatformController,AssetRemoteController,HostWafController,ScanExecutionIdentitiesController,RecordOptionsController,ActiveScansController,ScanTemplatesController,ScanEndpointsController,ScansController,VulnerabilityFeedsController,WafBundlesController,WafDeploymentsController,SshInstallationsController,AgentReleasesController,InstallationsController,AgentBootstrapController,
     CertificateController,WafCertificatesController,
     AssetHistoryController,StorageController,RuleToolsController,RepairTemplatesController,
     ReadinessController,
@@ -103,15 +115,15 @@ class Errors implements ExceptionFilter {
     WorkloadController,
     PlatformController,
   ],
-  providers: [AssetRemoteService,SshInstallationService,InstallationService,Db, AuthGuard, Platform, Lifecycle,DeliveryService,CorrelationService,CertificateService,{provide:APP_INTERCEPTOR,useClass:ScopeResponseInterceptor}],
+  providers: [PostgresMonitoringService,AccessObservationService,AssetRemoteService,SshInstallationService,InstallationService,Db, AuthGuard, Platform, Lifecycle,DeliveryService,CorrelationService,CertificateService,{provide:APP_INTERCEPTOR,useClass:ScopeResponseInterceptor}],
 })
 class AppModule {}
 async function main() {
   if (
     !process.env.ENROLLMENT_TOKEN ||
     process.env.ENROLLMENT_TOKEN.length < 24 ||
-    !process.env.WAF_TOKEN ||
-    process.env.WAF_TOKEN.length < 24
+    (process.env.WAF_TOKEN !== undefined && process.env.WAF_TOKEN.length < 24) ||
+    (process.env.WAF_RULE_RUNTIME_ENABLED === 'true' && !process.env.WAF_TOKEN)
   )
     throw new Error("Component tokens must have at least 24 characters");
   if(!!process.env.API_TLS_CERT!==!!process.env.API_TLS_KEY)throw new Error('API TLS requires both certificate and key');

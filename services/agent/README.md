@@ -144,8 +144,24 @@ configured root are refused. Each result retains installed version, evidence
 path and metadata/artifact SHA-256. Limits: 100 inputs, 10 seconds per cycle,
 1 MiB per installed metadata file (8 MiB per lock/SBOM), 32 MiB total metadata, 128 MiB per binary/JAR,
 2,000 components and 256 KiB serialized component output. Limits or unreadable
-inputs are reported as incomplete. Nested JARs and local/development Go modules
-are explicitly reported as coverage gaps. Agent 0.4.0 is required for these
+inputs are reported as incomplete. `MAVEN_JAR` reads JAR and WAR Maven coordinates,
+including Spring Boot `BOOT-INF/lib` and WAR `WEB-INF/lib`/`lib-provided` nested
+archives, entirely in memory without extraction or execution. Nested archive support requires Agent 0.4.23 or later. Nested JAR/WAR/ZIP
+entries are limited to four levels, 100 archives and 10,000 aggregate directory
+entries across the collection. Coordinate and central-directory metadata share
+the 32 MiB total metadata budget; each `pom.properties` is limited to 64 KiB. Nested archives
+have a separate 256 MiB cumulative decode budget and 16 MiB per archive limit.
+Exact allocations and sequential processing retain at most four nested archive
+buffers (64 MiB) during recursion, rather than retaining all dependencies. Read loops
+check the time budget; decoded entries must pass ZIP size and CRC verification.
+Coordinates must match their Maven metadata
+path; duplicate/unsafe paths, conflicting identity, corrupt or missing metadata,
+ZIP64/split archives and exhausted budgets explicitly mark coverage incomplete.
+Reported paths retain the full `outer.jar!nested.jar!META-INF/maven/...` chain;
+the SHA-256 identifies the archive containing that coordinate, including the
+actual nested bytes. The outer file identity and digest are rechecked after
+parsing. Valid components from readable siblings remain available alongside
+incomplete status. Local/development Go modules remain explicit coverage gaps. Agent 0.4.0 is required for these
 installation settings; older signed releases cannot silently ignore them.
 
 References: [npm metadata](https://docs.npmjs.com/cli/v11/configuring-npm/package-json/),
@@ -178,3 +194,10 @@ Authorized online installations may select a hostWaf profile. This runs after th
 Managed installation accepts an explicit HTTP or HTTPS platform origin. HTTP installations persist `AllowHTTP: true` in collector, executor and recovery connection configuration; manually configured agents can explicitly set `AllowHTTP` or `AGENT_ALLOW_HTTP=true`. This does not enable development mode. HTTPS configuration keeps HTTP disabled, verifies certificate trust, and cannot silently downgrade. HTTP is plaintext and is intended for trusted networks.
 
 The same declared scheme and origin constrain signed upgrade downloads and target-bound download grants; redirects remain disabled. Offline preparation supports both schemes without claiming the platform is online. HTTP platform selection requires Agent 0.4.10 or newer; older releases remain immutable. Host WAF nodes launched from an HTTP installation explicitly receive `WAF_ALLOW_HTTP=true` and require the matching updated WAF image.
+
+For offline advisory-matching acceptance, the test-only
+`SELF_GUARD_APPLICATION_FIXTURE_OUTPUT=/absolute/output.json go test -run '^TestExportApplicationInventoryFixture$' -count=1`
+exports collected Maven Spring Boot 2.6.0 and npm lodash 4.17.20 fixture evidence
+with actual paths, nested SHA-256 and collection status. This is fixture evidence,
+not a business-host installation claim; temporary fixture paths expire after the
+test. The environment variable has no effect on the product agent.

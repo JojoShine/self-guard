@@ -1,9 +1,12 @@
+import {FormDrawer} from './FormDrawer';
+import {DetailPanel} from './DetailWorkspace';
 import type {ReactNode} from 'react';
-import {Alert,Drawer,Tag,Typography} from 'antd';
+import {Alert,Tag,Typography} from 'antd';
 import {displayStatus,displaySeverity,severityTone,statusTone} from './presentation';
 
-export function ModuleSection({title,description,extra,children,flush=false,onClose,busy=false,error}:{title:string;description?:ReactNode;extra?:ReactNode;children:ReactNode;flush?:boolean;onClose?:()=>void;busy?:boolean;error?:string}){
- if(onClose)return <Drawer open placement="right" title={title} extra={extra} className="record-drawer module-drawer" width="min(960px, calc(100vw - 24px))" closable={!busy} maskClosable={!busy} onClose={()=>{if(!busy)onClose()}}><div className="module-stack">{description&&<Typography.Paragraph type="secondary">{description}</Typography.Paragraph>}{error&&<Alert type="error" showIcon message={error}/>}<div className="module-stack">{children}</div></div></Drawer>;
+export function ModuleSection({title,description,extra,children,flush=false,onClose,busy=false,error,modal=false}:{title:string;description?:ReactNode;extra?:ReactNode;children:ReactNode;flush?:boolean;onClose?:()=>void;busy?:boolean;error?:string;modal?:boolean}){
+ if(onClose&&modal)return <FormDrawer open title={title} width="min(960px, calc(100vw - 32px))" className="module-form-drawer" footer={null} destroyOnClose closable={!busy} maskClosable={!busy} keyboard={!busy} onCancel={()=>{if(!busy)onClose()}}><div className="module-stack">{description&&<Typography.Paragraph type="secondary">{description}</Typography.Paragraph>}{extra&&<ModuleToolbar>{extra}</ModuleToolbar>}{error&&<Alert type="error" showIcon message={error}/>}<div className="module-stack">{children}</div></div></FormDrawer>;
+ if(onClose)return <DetailPanel open placement="right" title={title} extra={extra} className="record-drawer module-drawer" width="min(960px, calc(100vw - 24px))" closable={!busy} maskClosable={!busy} onClose={()=>{if(!busy)onClose()}}><div className="module-stack">{description&&<Typography.Paragraph type="secondary">{description}</Typography.Paragraph>}{error&&<Alert type="error" showIcon message={error}/>}<div className="module-stack">{children}</div></div></DetailPanel>;
  return <section className="module-section" aria-label={title}><header className="module-section-header"><div><h2>{title}</h2>{description&&<p>{description}</p>}</div>{extra&&<div className="module-section-extra">{extra}</div>}</header><div className={'module-section-body'+(flush?' module-section-body--flush':'')}>{children}</div></section>;
 }
 export function ModuleToolbar({children}:{children:ReactNode}){return <div className="module-toolbar">{children}</div>;}

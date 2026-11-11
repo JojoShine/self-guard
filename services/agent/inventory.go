@@ -17,10 +17,15 @@ import (
 )
 
 type Port struct {
-	Protocol string `json:"protocol"`
-	Address  string `json:"address"`
-	Port     int    `json:"port"`
-	State    string `json:"state"`
+	Protocol       string        `json:"protocol"`
+	Address        string        `json:"address"`
+	Port           int           `json:"port"`
+	State          string        `json:"state"`
+	Software       string        `json:"software,omitempty"`
+	Identification string        `json:"identification,omitempty"`
+	ServiceHint    string        `json:"serviceHint,omitempty"`
+	Processes      []PortProcess `json:"processes,omitempty"`
+	socketInode    string
 }
 type Service struct {
 	Name  string `json:"name"`
@@ -58,7 +63,11 @@ func portInventory(root string) ([]Port, PackageCollection) {
 				status = PackageCollection{Reason: "socket count limit exceeded"}
 				break
 			}
-			out = append(out, Port{protocol, address, port, "LISTEN"})
+			inode := ""
+			if len(fields) > 9 {
+				inode = fields[9]
+			}
+			out = append(out, Port{Protocol: protocol, Address: address, Port: port, State: "LISTEN", socketInode: inode})
 		}
 		if scan.Err() != nil {
 			status = PackageCollection{Reason: "socket table read failed"}
@@ -68,6 +77,7 @@ func portInventory(root string) ([]Port, PackageCollection) {
 		}
 		f.Close()
 	}
+	identifyPortSoftware(filepath.Dir(root), out)
 	return out, status
 }
 func procAddress(raw string) (string, int, error) {
@@ -263,4 +273,55 @@ func (a *Agent) collectBaselines() []map[string]any {
 		}
 	}
 	return out
+}
+
+// Established peers do not prove connection direction, service type or ownership.
+func connectionInventory(root string) ([]Port, PackageCollection) {
+	out := []Port{}
+	status := PackageCollection{Complete: true, Reason: "collected"}
+	seen := map[string]bool{}
+	for _, protocol := range []string{"tcp", "tcp6"} {
+		f, err := os.Open(filepath.Join(root, protocol))
+		if err != nil {
+			status = PackageCollection{Reason: "proc connection table unavailable"}
+			continue
+		}
+		limited := &io.LimitedReader{R: f, N: (1 << 20) + 1}
+		scan := bufio.NewScanner(limited)
+		scan.Scan()
+		for scan.Scan() {
+			fields := strings.Fields(scan.Text())
+			if len(fields) < 4 {
+				status = PackageCollection{Reason: "malformed connection table"}
+				continue
+			}
+			if fields[3] != "01" {
+				continue
+			}
+			address, port, err := procAddress(fields[2])
+			ip := net.ParseIP(address)
+			if err != nil || ip == nil {
+				status = PackageCollection{Reason: "invalid peer address"}
+				continue
+			}
+			if ip.IsLoopback() || ip.IsUnspecified() || port == 0 {
+				continue
+			}
+			key := fmt.Sprintf("%s:%d", address, port)
+			if seen[key] {
+				continue
+			}
+			if len(out) >= 500 {
+				status = PackageCollection{Reason: "connection count limit exceeded"}
+				break
+			}
+			seen[key] = true
+			out = append(out, Port{Protocol: protocol, Address: address, Port: port, State: "ESTABLISHED"})
+		}
+		if scan.Err() != nil || limited.N == 0 {
+			status = PackageCollection{Reason: "connection read limit or error"}
+		}
+		f.Close()
+	}
+	return out, status
 }

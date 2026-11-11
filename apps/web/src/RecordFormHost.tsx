@@ -1,14 +1,17 @@
+import {DetailPanel,useDetailWorkspace} from './DetailWorkspace';
 import {useEffect,useId,useRef} from 'react';
 import {createPortal} from 'react-dom';
-import {Button,Modal,Space,Typography} from 'antd';
-import type {ModalProps} from 'antd';
+import {Button,Space,Typography} from 'antd';
+import {FormDrawer} from './FormDrawer';
+import type {FormDrawerProps} from './FormDrawer';
 
-type Props=Pick<ModalProps,'children'|'className'|'title'|'open'|'centered'|'maskClosable'|'closable'|'cancelButtonProps'|'cancelText'|'okText'|'okButtonProps'|'onCancel'|'onOk'|'confirmLoading'|'destroyOnClose'>&{inlineTarget?:HTMLElement|null};
+type Props=FormDrawerProps&{inlineTarget?:HTMLElement|null;fullPage?:boolean;onCancel?:()=>void};
 
-export function RecordFormHost({inlineTarget,...props}:Props){
- const titleId=useId(),editor=useRef<HTMLElement>(null);
+export function RecordFormHost({inlineTarget,fullPage=false,...props}:Props){
+ const titleId=useId(),editor=useRef<HTMLElement>(null),workspace=useDetailWorkspace();
  useEffect(()=>{if(props.open&&inlineTarget){editor.current?.scrollIntoView({block:'nearest'});editor.current?.focus({preventScroll:true})}},[props.open,inlineTarget,props.title]);
- if(!inlineTarget)return <Modal {...props}/>;
+ if(fullPage&&workspace&&!inlineTarget)return <DetailPanel open={props.open} title={props.title} onClose={props.onCancel} closable={props.closable!==false&&!props.confirmLoading} className="record-form-page"><div className="record-form-page-content">{props.children}</div><Space className="record-form-inline-actions" wrap><Button type="primary" {...props.okButtonProps} loading={props.confirmLoading} onClick={props.onOk}>{props.okText}</Button><Button {...props.cancelButtonProps} onClick={props.onCancel}>{props.cancelText}</Button></Space></DetailPanel>;
+ if(!inlineTarget)return <FormDrawer {...props}/>;
  if(!props.open)return null;
  return createPortal(<section ref={editor} className="record-inline-editor record-form-inline" tabIndex={-1} aria-labelledby={titleId}>
   <Typography.Title level={5} id={titleId}>{props.title}</Typography.Title>

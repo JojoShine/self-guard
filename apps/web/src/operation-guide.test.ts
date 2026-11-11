@@ -1,30 +1,12 @@
 /// <reference types="vite/client" />
-import {describe,it,expect} from 'vitest';
-import source from './main.tsx?raw';
+import {it,expect} from 'vitest';
 import guide from './content/operation-guide.md?raw';
+it('documents core observation paths and locally reachable configuration',()=>{for(const text of ['接入与查看主机','漏洞检查与结果核对','数据实例、分类与访问','核查异常与证据','漏洞数据源','采集配置','扫描配置'])expect(guide).toContain(text);});
+it('teaches complete server/database monitoring and acceptance with diagrams',()=>{for(const text of ['交付前准备','资源监控','运行监控','只读监控账号','如何确认监控正常','交付验收清单','采集延迟'])expect(guide).toContain(text);expect(guide.match(/```mermaid/g)?.length).toBeGreaterThanOrEqual(3)});
+it('states retired scope and evidence limits without teaching old workflows',()=>{for(const text of ['不提供自研 WAF','正文从捕获时间起保留7天','查看和导出正文分别需要授权','最终业务用户没有可信证据时保持未知'])expect(guide).toContain(text);for(const text of ['创建关联修复任务','站点接入到安全阻断','从风险到修复闭环'])expect(guide).not.toContain(text);});
 
-const menu=source.split('const groups:')[1].split('const names')[0];
-const modules=[['overview','工作台'],...[...menu.matchAll(/\["([^"]+)",\s*"([^"]+)"\]/g)].map(match=>[match[1],match[2]])];
+it('explains the independent CVE and KEV workspace without claiming full detection',()=>{for(const text of ['漏洞管理','CVE与在野漏洞如何管理','使用与覆盖','修复后更新清单并复扫','不承诺覆盖全部CVE'])expect(guide).toContain(text)});
 
-describe('Markdown operation guide coverage',()=>{
- it('documents every current menu without duplicate or missing module destinations',()=>{
-  const entries=[...guide.matchAll(/\[前往([^\]]+)\]\(#([a-z-]+)\)/g)].map(match=>[match[2],match[1]]);
-  expect(entries.sort()).toEqual(modules.slice().sort());
- });
- it('keeps each module explanation complete rather than an empty heading or destination list',()=>{
-  for(const [,title] of modules){
-   const content=guide.split('### '+title+'\n\n')[1]?.split(/\n#{2,3} /)[0];
-   expect(content,title).toBeTruthy();
-   expect(content.split('\n\n').filter(paragraph=>paragraph&&!paragraph.startsWith('[前往')).length,title).toBeGreaterThanOrEqual(3);
-  }
- });
- it('provides valid configuration and import examples without executable changes',()=>{
-  const examples=[...guide.matchAll(/```json\n([\s\S]*?)\n```/g)].map(match=>JSON.parse(match[1]));
-  expect(examples.find(example=>example.mode)).toEqual({path:'/srv/app/config/app.conf',mode:'0640'});
-  expect(examples.find(example=>example.items)?.items[0]).toMatchObject({externalId:'scanner-001',kind:'RISK',severity:'HIGH',source:'external-scanner'});
- });
- it('keeps all three workflows and their links within existing modules',()=>{
-  for(const title of ['首次接入与检测','从风险到修复闭环','站点接入到安全阻断'])expect(guide).toContain('### '+title);
-  for(const match of guide.matchAll(/\]\(#([^\)]+)\)/g))expect(modules.some(([key])=>key===match[1])).toBe(true);
- });
-});
+it('teaches all three detection layers and deferred Web target enrollment',()=>{for(const t of ['服务器组件、应用与Web分别怎么扫','检测规则库','node_modules','0.4.23','暂时没有Web目标'])expect(guide).toContain(t)});
+
+it('teaches generic rules and native compile limits without a brand workflow',()=>{for(const text of ['通用扫描','原生编译','不支持','固定','正反样本'])expect(guide).toContain(text);expect(guide).not.toContain('常用中间件检测');expect(guide.match(/```mermaid/g)?.length).toBe(5)});

@@ -6,6 +6,7 @@ import {spawnSync} from 'node:child_process';
 import {Db} from '../src/db';
 import {Platform} from '../src/platform';
 import {RecordOptionsController} from '../src/record-options';
+import {OperationsController} from '../src/operations';
 
 test('lightweight choices preserve authorization, full pagination, selected identities and stable business assignment', {skip:!process.env.DATABASE_URL}, async()=>{
  const schema='record_options_'+randomBytes(12).toString('hex'),admin=new Db(),url=new URL(process.env.DATABASE_URL!);url.searchParams.set('schema',schema);let db:Db|undefined;
@@ -15,9 +16,12 @@ test('lightweight choices preserve authorization, full pagination, selected iden
   const actor=await db.user.create({data:{email:'record-options@fixture.test',name:'Owned directory operator',role:'ADMIN',passwordHash:'owned-test-not-used-for-auth'}}),req={user:actor},controller=new RecordOptionsController(db),platform=new Platform(db);
   const group=await controller.createBusiness(req,{name:'Payments'}),same=await controller.createBusiness(req,{name:' Payments '});assert.equal(group.stableId,same.stableId);
   await controller.createBusiness(req,{name:'Future business'});
+  const operations=new OperationsController(db);assert.deepEqual((await operations.businessGroups(req)).items.find(row=>row.business==='Future business'),{business:'Future business',assetCount:0});
   const assets=Array.from({length:181},(_,i)=>({id:randomUUID(),hostname:'Owned choice '+String(i).padStart(3,'0'),os:'linux',business:i<180?'Payments':'Private business',inventory:{secret:'never include full inventory in choices'},executorPublicKey:Buffer.alloc(32,3).toString('base64')}));
   await db.asset.createMany({data:assets});
   const scoped={user:{...actor,role:'ANALYST',dataScope:{restricted:true,businesses:['Payments'],assetIds:[],canReadEvidence:false}}};
+  assert.ok(!(await operations.businessGroups(scoped)).items.some(row=>row.business==='Future business'));
+  const futureScope={user:{...scoped.user,dataScope:{...scoped.user.dataScope,businesses:['Future business']}}};assert.deepEqual((await operations.businessGroups(futureScope)).items,[{business:'Future business',assetCount:0}]);
   const first=await controller.list(scoped,'assets',{});assert.equal(first.items.length,15);assert.equal(first.total,180);assert.deepEqual(Object.keys(first.items[0]).sort(),['archivedAt','business','hostname','id','ip']);assert.ok(!JSON.stringify(first).includes('never include'));
   const second=await controller.list(scoped,'assets',{page:2,pageSize:15});assert.equal(second.items.length,15);assert.equal(new Set([...first.items,...second.items].map(row=>row.id)).size,30);
   const distant=await controller.list(scoped,'assets',{q:'Owned choice 179'});assert.equal(distant.items[0].id,assets[179].id);

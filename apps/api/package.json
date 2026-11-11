@@ -6,7 +6,8 @@
     "build": "tsc",
     "start": "node dist/main.js",
     "dev": "tsx watch src/main.ts",
-    "test": "tsx --test --test-concurrency=1 test/*.test.ts",
+    "test": "node scripts/run-tests.cjs",
+    "build:scanner": "node scripts/run-tests.cjs --prepare-only",
     "generate": "prisma generate",
     "migrate": "prisma migrate deploy",
     "seed": "tsx prisma/seed.ts"
@@ -17,8 +18,13 @@
     "@nestjs/platform-express": "^11.1.0",
     "@prisma/client": "6.19.3",
     "helmet": "^8.1.0",
+    "mysql2": "3.24.6",
+    "oracledb": "6.10.0",
+    "pg": "8.23.1",
+    "redis": "5.12.1",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.2",
+    "saxes": "6.0.0",
     "tldts": "7.4.19",
     "yaml": "2.9.1",
     "zod": "^4.6.7"
@@ -26,6 +32,7 @@
   "devDependencies": {
     "@types/express": "^5.0.0",
     "@types/node": "^22.15.0",
+    "@types/pg": "8.23.1",
     "prisma": "6.19.3",
     "tsx": "^4.20.0",
     "typescript": "^5.8.3"

@@ -18,3 +18,15 @@ test('wrong ecosystems are rejected while unscoped and withdrawn facts stay expl
   const withdrawn = normalizeOsvScopedRecord({...base, affected: [], withdrawn: base.modified}, 'Go')!;
   assert.equal(withdrawn.withdrawnAt, '2026-10-31T12:00:00.123Z'); assert.deepEqual(withdrawn.metadata.osvOriginalVersion, {modified: base.modified, withdrawn: base.modified}); assert.equal(withdrawn.affected.length, 0);
 });
+
+test('Ubuntu archive normalization accepts large official records while retaining bounded and ecosystem-specific limits', () => {
+  const raw = {...base, id: 'USN-8875-1', affected: [affected('Ubuntu:22.04:LTS'), affected('Ubuntu:24.04:LTS')], archivePadding: 'x'.repeat(5 * 1024 * 1024)};
+  const row = normalizeOsvScopedRecord(raw, 'Ubuntu', '22.04')!;
+  assert.equal(row.externalId, raw.id);
+  assert.equal(row.purpose, 'METADATA');
+  assert.deepEqual(row.packages, ['Ubuntu:22.04:example']);
+  assert.equal(row.affected.length, 1);
+  assert.match(row.rawSha256, /^[a-f0-9]{64}$/);
+  assert.throws(() => normalizeOsvScopedRecord({...raw, archivePadding: 'x'.repeat(8 * 1024 * 1024)}, 'Ubuntu', '22.04'), /单条情报超过当前来源预算/);
+  assert.throws(() => normalizeOsvScopedRecord({...raw, affected: [affected('npm')], archivePadding: 'x'.repeat(3 * 1024 * 1024)}, 'npm'), /单条情报超过当前来源预算/);
+});

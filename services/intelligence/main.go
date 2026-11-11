@@ -22,6 +22,9 @@ import (
 
 const maxArchiveBytes int64 = 256 << 20
 const maxEntryBytes int64 = 2 << 20
+
+// Current official Ubuntu USN records exceed 4MiB; other ecosystem budgets stay unchanged.
+const ubuntuEntryBytes int64 = 8 << 20
 const maxDecodedBytes uint64 = 4 << 30
 
 var recordFilename = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:+-]{0,199}\.json$`)
@@ -40,12 +43,12 @@ func readUbuntuArchive(filename, expected string, output io.Writer, release stri
 	if release != "22.04" && release != "24.04" {
 		return errors.New("unsupported Ubuntu archive release")
 	}
-	return readArchiveProfile(filename, expected, output, archiveProfile{archiveBytes: 1 << 30, entryBytes: 4 << 20, decodedBytes: 12 << 30, ubuntuRelease: release})
+	return readArchiveProfile(filename, expected, output, archiveProfile{archiveBytes: 1 << 30, entryBytes: ubuntuEntryBytes, decodedBytes: 12 << 30, ubuntuRelease: release})
 }
 func readArchiveVersions(filename, expected string, output io.Writer, ubuntu bool) error {
 	profile := archiveProfile{archiveBytes: maxArchiveBytes, entryBytes: maxEntryBytes, decodedBytes: maxDecodedBytes, versionsOnly: true}
 	if ubuntu {
-		profile.archiveBytes, profile.entryBytes, profile.decodedBytes = 1<<30, 4<<20, 12<<30
+		profile.archiveBytes, profile.entryBytes, profile.decodedBytes = 1<<30, ubuntuEntryBytes, 12<<30
 	}
 	return readArchiveProfile(filename, expected, output, profile)
 }
@@ -185,11 +188,12 @@ func main() {
 	debug.SetMemoryLimit(512 << 20)
 	release := ""
 	versions, ubuntuVersions := false, false
+	probeTemplates := len(os.Args) == 4 && os.Args[3] == "--probe-templates"
 	if len(os.Args) == 5 && os.Args[3] == "--ubuntu" && (os.Args[4] == "22.04" || os.Args[4] == "24.04") {
 		release = os.Args[4]
 	} else if len(os.Args) == 4 && (os.Args[3] == "--versions" || os.Args[3] == "--versions-ubuntu") {
 		versions, ubuntuVersions = true, os.Args[3] == "--versions-ubuntu"
-	} else if len(os.Args) != 3 {
+	} else if len(os.Args) != 3 && !probeTemplates {
 		fmt.Fprintln(os.Stderr, "usage: selfguard-intelligence-unzip ZIP_PATH SHA256 [--ubuntu 22.04|24.04 | --versions | --versions-ubuntu]")
 		os.Exit(1)
 	}
@@ -202,7 +206,9 @@ func main() {
 		os.Exit(1)
 	}
 	var err error
-	if versions {
+	if probeTemplates {
+		err = readProbeArchive(os.Args[1], os.Args[2], os.Stdout)
+	} else if versions {
 		err = readArchiveVersions(os.Args[1], os.Args[2], os.Stdout, ubuntuVersions)
 	} else if release != "" {
 		err = readUbuntuArchive(os.Args[1], os.Args[2], os.Stdout, release)

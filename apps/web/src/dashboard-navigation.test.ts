@@ -1,11 +1,10 @@
-import {describe,it,expect} from 'vitest';
+import {it,expect} from 'vitest';
 import {dashboardDestination} from './dashboard-navigation';
+it('core metrics open corresponding scoped modules',()=>{for(const [group,page] of Object.entries({overviewAssets:'assets',overviewInstances:'database-instances',overviewNetworkRisks:'network-risks?status=OPEN',overviewNetworkAlerts:'network-alerts?status=OPEN',overviewDataAlerts:'data-alerts?status=OPEN',overviewAccess:'data-access'}))expect(dashboardDestination(group)).toBe(page);});
+it('obsolete or unknown dashboard actions do not navigate to retired capabilities',()=>{for(const group of ['constructor','wafNodes','overviewTasks','approvals'])expect(dashboardDestination(group)).toBe('overview')});
 
-describe('dashboard module destinations',()=>{
- it('opens matching menu pages for metric, health and work groups',()=>{
-  for(const [group,page] of Object.entries({overviewAssets:'assets',overviewRisks:'risks',overviewAlerts:'alerts',overviewTasks:'tasks',overviewCritical:'risks',overviewIncidents:'incidents',wafEvents:'waf-events',wafBlocked:'waf-events',wafNodes:'nodes',online:'assets',stale:'assets',neverSeen:'assets',archived:'assets',approvals:'approvals',myTasks:'tasks',assigned:'findings',overdue:'findings',verifyFindings:'findings',verifyTasks:'tasks',succeeded:'tasks',failed:'tasks',rolledBack:'tasks',businessAssets:'assets',businessRisks:'risks'}))expect(dashboardDestination(group)).toBe(page);
- });
- it('uses the workbench for an unrecognised group',()=>{
-  expect(dashboardDestination('constructor')).toBe('overview');
- });
+it('pending issue metrics preserve the OPEN filter on their destination',()=>{
+ expect(dashboardDestination('overviewNetworkRisks')).toBe('network-risks?status=OPEN');
+ expect(dashboardDestination('overviewNetworkAlerts')).toBe('network-alerts?status=OPEN');
+ expect(dashboardDestination('overviewDataAlerts')).toBe('data-alerts?status=OPEN');
 });

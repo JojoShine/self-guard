@@ -1,4 +1,6 @@
-import {it,expect,vi} from 'vitest';vi.mock('./api',()=>({api:vi.fn()}));import {templateFormValue,templatePayload} from './ScanTemplatePanel';
+import {ProbeSourceDetails} from './ProbeSourceDetails';
+import {renderToStaticMarkup} from 'react-dom/server';
+import {it,expect,vi} from 'vitest';vi.mock('./api',()=>({api:vi.fn()}));import {templateSourceName,TemplateValidationReport,templateFormValue,templatePayload} from './ScanTemplatePanel';
 it('keeps finite choices and converts readable sample header rows without losing duplicate headers',()=>{
  const data={name:'测试',purpose:'CONFIGURATION',severity:'LOW',description:'明确依据',remediation:'修改后复测',method:'GET',path:'/',operator:'ALL',conditions:[{kind:'STATUS',status:200,value:'stale',header:'stale'},{kind:'HEADER_MISSING',header:'X-Frame-Options',value:'stale'}],samples:[{name:'命中',expectedMatched:true,status:200,headers:{'X-Test':['one','two'],constructor:['safe']},body:'actual'}]};
  const payload=templatePayload(templateFormValue(data));expect(payload.conditions).toEqual([{kind:'STATUS',status:200},{kind:'HEADER_MISSING',header:'X-Frame-Options'}]);expect(payload.samples[0].headers).toEqual({'X-Test':['one','two'],constructor:['safe']});expect(payload.samples[0].expectedMatched).toBe(true);
@@ -25,3 +27,16 @@ it('round-trips network certificate samples without HTTP fields or stale disconn
 it('keeps network marker bytes literal and clears irrelevant rule parameters when changing check kind',()=>{
  const value={kind:'NETWORK',protocol:'tcp',checkKind:'TCP_BANNER',name:'服务特征',purpose:'CONFIGURATION',severity:'LOW',description:'明确内容',remediation:'核对后升级',matchValue:' legacy ',days:30,samples:[{name:'命中',expectedMatched:true,connected:true,banner:'owned legacy service\r\n'},{name:'反例',expectedMatched:false,connected:true,banner:'normal\r\n'}]};const form=templateFormValue(value),payload=templatePayload(form);expect(payload.matchValue).toBe(' legacy ');expect(payload.days).toBe(0);const observed=templatePayload({...form,checkKind:'TCP_CONNECT',purpose:'OBSERVATION',severity:'INFO'});expect(observed.matchValue).toBe('');expect(observed.samples[0]).not.toHaveProperty('banner');
 });
+
+it('distinguishes native compile validation from positive and negative sample evidence',()=>{
+ const html=renderToStaticMarkup(<TemplateValidationReport report={{validationKind:'NATIVE_TEMPLATE_COMPILE',passed:true,meaning:'只验证编译',samples:[]}}/>);
+ expect(html).toContain('原生模板编译通过');expect(html).toContain('不代表实际目标命中');expect(html).not.toContain('正反样本校验通过');
+});
+
+it('shows verified native library provenance without describing it as uploaded or sample validated',()=>{
+ const html=renderToStaticMarkup(<ProbeSourceDetails source={{format:'NUCLEI_LIBRARY',originalId:'generic-cve',raw:'original yaml',sourceSha256:'original-proof',provenance:{verification:'OFFICIAL_ARCHIVE_SHA256_VERIFIED',version:'v10',sourceUrl:'https://github.com/projectdiscovery/nuclei-templates',license:'MIT',sha256:'archive-proof'}}}/>);
+ for(const text of ['官方归档','original-proof','原生','original yaml'])expect(html).toContain(text);
+ for(const text of ['用户上传','样本校验','undefined'])expect(html).not.toContain(text);
+});
+
+it('names native catalog templates consistently in list and detail',()=>{expect(templateSourceName('NUCLEI_LIBRARY')).toBe('官方原件 · 原生引擎');expect(templateSourceName('LOCAL')).toBe('本地自研或派生模板')});

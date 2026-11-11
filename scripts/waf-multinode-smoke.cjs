@@ -2,7 +2,7 @@
 const assert=require('node:assert/strict');
 const base=process.env.TEST_API_URL;assert.ok(base?.includes(':4400/'),'Use isolated HTTP runner');
 const nodes=['selfguard-runtime-acceptance-a','selfguard-runtime-acceptance-b'];
-const upstream=process.env.WAF_ACCEPTANCE_UPSTREAM;assert.equal(upstream,'http://selfguard-runtime-acceptance-api:4401');
+const upstream=process.env.WAF_ACCEPTANCE_UPSTREAM;assert.equal(upstream,process.env.WAF_ACCEPTANCE_NATIVE==='1'?'http://host.lima.internal:4401':'http://selfguard-runtime-acceptance-api:4401');
 const upstreamServer=require('node:http').createServer((req,res)=>{req.resume();res.end('isolated upstream fixture')});
 async function main(){
  await new Promise(resolve=>upstreamServer.listen(4401,'0.0.0.0',resolve));
@@ -14,7 +14,7 @@ async function main(){
  const site=await call('/sites',{name:'实际双节点验收站点',hostname:'multinode.fixture.test',upstream,mode:'BLOCK',enabled:true,config:{}});
  for(const attack of [false,true]){const result=await call('/waf-rule-bundles/'+bundle.id+'/validate',{fixture:{requestBase64:Buffer.from('GET /api/health?q='+(attack?'acceptance-attack':'normal')+' HTTP/1.1\r\nHost: multinode.fixture.test\r\n\r\n').toString('base64'),threshold:5},expectedBlocked:attack,...(attack?{expectedStatus:451}:{})});assert.ok(result.validation.passed)}
  const observed=(await call('/waf-rule-deployments/observe/'+bundle.id,{siteIds:[site.id],threshold:5,reason:'仅在隔离夹具验证两个真实节点确认观察版本'})).items[0];await waitAck(observed.id);
- async function request(node,attack,invalid=false){return new Promise((resolve,reject)=>{const r=require('node:http').get('http://'+node+':8081/api/health?q='+(invalid?'%ZZ':attack?'acceptance-attack':'normal'),{headers:{Host:site.hostname}},response=>{response.resume();response.once('end',()=>resolve(response.statusCode))});r.once('error',reject);r.setTimeout(10000,()=>r.destroy(Error('Actual node request timed out')))});}
+ async function request(node,attack,invalid=false){return new Promise((resolve,reject)=>{const r=require('node:http').get((process.env.WAF_ACCEPTANCE_NATIVE==='1'?'http://127.0.0.1:'+String(18091+nodes.indexOf(node)):'http://'+node+':8081')+'/api/health?q='+(invalid?'%ZZ':attack?'acceptance-attack':'normal'),{headers:{Host:site.hostname}},response=>{response.resume();response.once('end',()=>resolve(response.statusCode))});r.once('error',reject);r.setTimeout(10000,()=>r.destroy(Error('Actual node request timed out')))});}
  for(const node of nodes){assert.equal(await request(node,true),200);assert.equal(await request(node,false),200)}
  for(const node of nodes)assert.equal(await request(node,false,true),503);
  let failures=[];for(let n=0;n<40;n++){failures=(await call('/waf-events?pageSize=100')).items.filter(row=>row.siteId===site.id&&!row.inspection?.complete);if(nodes.every(node=>failures.some(row=>row.inspection?.nodeId===node)))break;await new Promise(r=>setTimeout(r,250))}

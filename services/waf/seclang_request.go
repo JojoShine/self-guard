@@ -280,15 +280,20 @@ func secMultipartHasInvalidHeader(err error) bool {
 		return false
 	}
 	message := string(protocol)
-	if !strings.HasPrefix(message, "malformed MIME header") {
-		return false
-	}
-	_, quoted, found := strings.Cut(message, ": ")
-	if !found {
-		return false
-	}
-	line, e := strconv.Unquote(quoted)
-	if e != nil {
+	line := ""
+	// textproto reports invalid field bytes verbatim; only missing-colon
+	// errors quote the line. Never expose either raw form in diagnostics.
+	if strings.HasPrefix(message, "malformed MIME header line: ") {
+		line = strings.TrimPrefix(message, "malformed MIME header line: ")
+	} else if strings.HasPrefix(message, "malformed MIME header initial line: ") {
+		line = strings.TrimPrefix(message, "malformed MIME header initial line: ")
+	} else if strings.HasPrefix(message, "malformed MIME header: missing colon: ") {
+		var e error
+		line, e = strconv.Unquote(strings.TrimPrefix(message, "malformed MIME header: missing colon: "))
+		if e != nil {
+			return false
+		}
+	} else {
 		return false
 	}
 	for _, b := range []byte(line) {

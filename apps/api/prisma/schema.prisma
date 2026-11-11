@@ -6,6 +6,7 @@ datasource db {
  url = env("DATABASE_URL")
 }
 model User {
+ operationalMonitors OperationalMonitor[]
  dataScope Json @default("{}")
  id String @id @default(uuid())
  email String @unique
@@ -24,6 +25,11 @@ model Session {
  expiresAt DateTime
 }
 model Asset {
+ operationalMonitor OperationalMonitor?
+ networkSensors NetworkSensor[]
+ networkSensorEvents NetworkSensorEvent[]
+ trafficMonitors TrafficMonitor[]
+ trafficMonitorWindows TrafficMonitorWindow[]
  remoteAccess AssetRemoteAccess?
  remoteJobs AssetRemoteJob[]
  executorPublicKey String?
@@ -46,8 +52,31 @@ model Asset {
  updatedAt DateTime @updatedAt
  findings Finding[]
  tasks Task[]
+ accessSources AccessSource[]
+}
+enum SecurityDomain {
+ NETWORK
+ DATA
+ UNCLASSIFIED
+}
+model FindingTriage {
+ findingId String @id
+ finding Finding @relation(fields:[findingId],references:[id],onDelete:Cascade)
+ conclusion String
+ duplicateOfId String?
+ duplicateOf Finding? @relation("DuplicateTarget",fields:[duplicateOfId],references:[id],onDelete:Restrict)
+ reason String
+ updatedBy String
+ updatedAt DateTime @updatedAt
+ @@index([duplicateOfId])
 }
 model Finding {
+ triage FindingTriage?
+ duplicateReports FindingTriage[] @relation("DuplicateTarget")
+ networkSensorEvents NetworkSensorEvent[]
+ securityDomain SecurityDomain @default(UNCLASSIFIED)
+ instanceId String?
+ instance DatabaseInstance? @relation(fields:[instanceId],references:[id],onDelete:Restrict)
  readAt DateTime?
  relatedRiskId String?
  id String @id @default(uuid())
@@ -71,6 +100,7 @@ model Finding {
  tasks Task[]
  links IncidentFinding[]
  @@index([status,kind,severity])
+ @@index([securityDomain,createdAt])
 }
 model Incident {
  type String @default("OTHER")
@@ -264,6 +294,7 @@ model Setting {
  updatedAt DateTime @updatedAt
 }
 model Notification {
+ inAppOnly Boolean @default(false)
  id String @id @default(uuid())
  userId String
  title String
@@ -769,6 +800,7 @@ model AssetRemoteAccess {
  updatedAt DateTime @updatedAt
 }
 model AssetRemoteJob {
+ kind String @default("TRAFFIC_CAPTURE")
  asset Asset @relation(fields:[assetId],references:[id],onDelete:Cascade)
  id String @id @default(uuid())
  assetId String
@@ -784,4 +816,337 @@ model AssetRemoteJob {
  updatedAt DateTime @updatedAt
  @@index([status,createdAt])
  @@index([assetId,createdAt])
+}
+
+model DatabaseInstance {
+ operationalMonitor OperationalMonitor?
+ id String @id @default(uuid())
+ stableKey String @unique
+ name String
+ engine String
+ version String?
+ business String?
+ owner String
+ hostIds String[] @default([])
+ auditSources Json @default("[]")
+ endpoints Json @default("[]")
+ archivedAt DateTime?
+ createdAt DateTime @default(now())
+ updatedAt DateTime @updatedAt
+ findings Finding[]
+ classifications DataClassification[]
+ objects DataObject[]
+ events DatabaseAudit[]
+ accessSources AccessSource[]
+ @@index([business,engine])
+}
+model AccessSource {
+ id String @id @default(uuid())
+ name String
+ assetId String
+ asset Asset @relation(fields:[assetId],references:[id],onDelete:Restrict)
+ instanceId String?
+ instance DatabaseInstance? @relation(fields:[instanceId],references:[id],onDelete:Restrict)
+ protocol String
+ mode String
+ interface String
+ address String
+ port Int
+ enabled Boolean @default(false)
+ version Int @default(1)
+ tokenHash String? @unique
+ issuedAssetTokenHash String?
+ maxQueueBytes Int @default(268435456)
+ profile Json @default("{}")
+ objectMappings Json @default("[]")
+ rules Json @default("[]")
+ health Json @default("{}")
+ lastReportAt DateTime?
+ createdAt DateTime @default(now())
+ updatedAt DateTime @updatedAt
+ observations AccessObservation[]
+ chunks AccessEvidenceChunk[]
+ @@index([assetId,enabled])
+ @@index([instanceId])
+}
+model AccessObservation {
+ id String @id @default(uuid())
+ sourceId String
+ source AccessSource @relation(fields:[sourceId],references:[id],onDelete:Restrict)
+ eventId String
+ manifestSha256 String
+ startedAt DateTime
+ endedAt DateTime
+ sessionId String
+ operation String
+ route String?
+ sourceIp String?
+ databaseUser String?
+ result String
+ completeness String
+ requestBytes BigInt
+ responseBytes BigInt
+ level Int?
+ classification Json
+ metadata Json
+ findingIds String[] @default([])
+ chunkIds String[] @default([])
+ createdAt DateTime @default(now())
+ @@unique([sourceId,eventId])
+ @@index([sourceId,startedAt])
+ @@index([sessionId,startedAt])
+ @@index([completeness,startedAt])
+}
+model AccessEvidenceChunk {
+ id String @id @default(uuid())
+ sourceId String
+ source AccessSource @relation(fields:[sourceId],references:[id],onDelete:Restrict)
+ eventId String
+ direction String
+ sequence Int
+ capturedAt DateTime
+ expiresAt DateTime
+ sha256 String
+ bytes Int
+ object String?
+ createdAt DateTime @default(now())
+ @@unique([sourceId,eventId,direction,sequence])
+ @@index([expiresAt])
+}
+model AssetCandidate {
+ id String @id @default(uuid())
+ key String @unique
+ sourceAssetId String
+ address String
+ port Int
+ protocol String
+ basis String
+ status String @default("PENDING")
+ lastReportKey String?
+ observations Int @default(1)
+ targetAssetId String?
+ instanceId String?
+ reason String?
+ firstSeen DateTime @default(now())
+ lastSeen DateTime @default(now())
+ @@index([sourceAssetId,status,lastSeen])
+}
+model DataClassification {
+ id String @id @default(uuid())
+ instanceId String
+ instance DatabaseInstance @relation(fields:[instanceId],references:[id],onDelete:Restrict)
+ engine String
+ database String
+ schema String @default("")
+ table String @default("")
+ column String @default("")
+ category String
+ level Int
+ requirements Json @default("{}")
+ handling String
+ status String @default("DRAFT")
+ version Int @default(1)
+ reason String
+ confirmedBy String?
+ createdAt DateTime @default(now())
+ updatedAt DateTime @updatedAt
+ @@unique([instanceId,database,schema,table,column])
+}
+model DataObject {
+ id String @id @default(uuid())
+ instanceId String
+ instance DatabaseInstance @relation(fields:[instanceId],references:[id],onDelete:Restrict)
+ database String
+ schema String @default("")
+ table String @default("")
+ column String @default("")
+ source String
+ firstSeen DateTime @default(now())
+ lastSeen DateTime @default(now())
+ @@unique([instanceId,database,schema,table,column])
+}
+model DatabaseSqlEvidence {
+ id String @id @default(uuid())
+ auditId String @unique
+ audit DatabaseAudit @relation(fields:[auditId],references:[id],onDelete:Cascade)
+ ciphertext String
+ bytes Int
+ expiresAt DateTime
+ @@index([expiresAt])
+}
+
+model DatabaseAudit {
+ sqlEvidence DatabaseSqlEvidence?
+ id String @id @default(uuid())
+ dedupKey String @unique
+ eventId String
+ instanceId String
+ instance DatabaseInstance @relation(fields:[instanceId],references:[id],onDelete:Restrict)
+ collectorAssetId String?
+ findingId String?
+ engine String
+ database String?
+ schema String?
+ table String?
+ user String
+ sourceIp String?
+ operation String
+ timestamp DateTime
+ level Int?
+ classification Json
+ details Json
+ createdAt DateTime @default(now())
+ @@index([instanceId,engine,database,timestamp])
+ @@index([findingId])
+}
+
+model TrafficMonitor {
+ id String @id @default(uuid())
+ assetId String
+ asset Asset @relation(fields:[assetId],references:[id],onDelete:Cascade)
+ ownerId String
+ config Json
+ desiredState String @default("RUNNING")
+ status String @default("STARTING")
+ detail String @default("正在启用持续监测")
+ lastSequence Int @default(0)
+ droppedWindows Int @default(0)
+ lastReportAt DateTime?
+ createdAt DateTime @default(now())
+ updatedAt DateTime @updatedAt
+ windows TrafficMonitorWindow[]
+ @@index([assetId,createdAt])
+}
+model TrafficMonitorWindow {
+ id String @id @default(uuid())
+ monitorId String
+ monitor TrafficMonitor @relation(fields:[monitorId],references:[id],onDelete:Cascade)
+ assetId String
+ asset Asset @relation(fields:[assetId],references:[id],onDelete:Cascade)
+ sequence Int
+ startedAt DateTime
+ endedAt DateTime
+ summary Json
+ createdAt DateTime @default(now())
+ @@unique([monitorId,sequence])
+ @@index([assetId,startedAt])
+ @@index([endedAt])
+}
+
+model NetworkSensor {
+ id String @id @default(uuid())
+ assetId String
+ asset Asset @relation(fields:[assetId],references:[id],onDelete:Restrict)
+ ownerId String
+ name String
+ enabled Boolean @default(false)
+ version Int @default(1)
+ tokenHash String?
+ evePath String
+ engineVersion String @default("")
+ ruleFile String?
+ ruleSetName String @default("")
+ ruleSetVersion String @default("")
+ ruleSourceUrl String?
+ expectedRuleSha256 String?
+ updateEveryHours Int @default(24)
+ lastReportedAt DateTime?
+ lastEventAt DateTime?
+ lastStatsAt DateTime?
+ lastMode String?
+ health Json @default("{}")
+ stats Json @default("{}")
+ createdAt DateTime @default(now())
+ updatedAt DateTime @updatedAt
+ events NetworkSensorEvent[]
+ batches NetworkSensorBatch[]
+ identities NetworkSensorEventIdentity[]
+ @@index([assetId,createdAt])
+}
+model NetworkSensorEvent {
+ mode String @default("UNKNOWN")
+ id String @id @default(uuid())
+ sensorId String
+ sensor NetworkSensor @relation(fields:[sensorId],references:[id],onDelete:Cascade)
+ assetId String
+ asset Asset @relation(fields:[assetId],references:[id],onDelete:Restrict)
+ eventId String
+ sourceSha256 String
+ contentSha256 String
+ occurredAt DateTime
+ eventType String
+ flowId String?
+ sourceIp String?
+ destinationIp String?
+ sourcePort Int?
+ destinationPort Int?
+ protocol String?
+ appProtocol String?
+ metadata Json
+ findingId String?
+ finding Finding? @relation(fields:[findingId],references:[id],onDelete:SetNull)
+ createdAt DateTime @default(now())
+ @@unique([sensorId,eventId])
+ @@index([sensorId,occurredAt])
+ @@index([sensorId,flowId,occurredAt])
+ @@index([assetId,occurredAt])
+}
+model NetworkSensorBatch {
+ id String @id @default(uuid())
+ sensorId String
+ sensor NetworkSensor @relation(fields:[sensorId],references:[id],onDelete:Cascade)
+ batchId String
+ contentSha256 String
+ result Json
+ createdAt DateTime @default(now())
+ @@unique([sensorId,batchId])
+ @@index([createdAt])
+}
+
+model NetworkSensorEventIdentity {
+ createdAt DateTime @default(now())
+ sensorId String
+ sensor NetworkSensor @relation(fields:[sensorId],references:[id],onDelete:Cascade)
+ eventId String
+ contentSha256 String
+ @@id([sensorId,eventId])
+ @@index([sensorId,createdAt])
+}
+
+model OperationalMonitor {
+ id String @id @default(uuid())
+ kind String
+ assetId String? @unique
+ asset Asset? @relation(fields:[assetId],references:[id],onDelete:Restrict)
+ instanceId String? @unique
+ instance DatabaseInstance? @relation(fields:[instanceId],references:[id],onDelete:Restrict)
+ ownerId String?
+ owner User? @relation(fields:[ownerId],references:[id],onDelete:Restrict)
+ enabled Boolean @default(true)
+ config Json
+ credential String?
+ version Int @default(0)
+ status String @default("WAITING")
+ lastAttemptAt DateTime?
+ lastSuccessAt DateTime?
+ lastMetric Json?
+ lastError String?
+ failureCount Int @default(0)
+ leaseUntil DateTime?
+ leaseToken String?
+ createdAt DateTime @default(now())
+ updatedAt DateTime @updatedAt
+ samples MonitoringSample[]
+ @@index([kind,enabled,lastAttemptAt])
+}
+model MonitoringSample {
+ id String @id @default(uuid())
+ monitorId String
+ monitor OperationalMonitor @relation(fields:[monitorId],references:[id],onDelete:Cascade)
+ bucket DateTime
+ capturedAt DateTime
+ data Json
+ @@unique([monitorId,bucket])
+ @@index([monitorId,capturedAt])
+ @@index([capturedAt])
 }

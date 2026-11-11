@@ -1,3 +1,7 @@
+import {runProbeRuleLibrarySync} from './probe-rule-library';
+import {cleanupMonitoring} from './monitoring';
+import {cleanupNetworkSensorEvents} from './network-sensors';
+import {checkCrsSource} from './rule-source-status';
 import {queueDueActiveScans,processActiveScans} from './active-scans';
 import {queueDueScanPlans,processInventoryScans} from './scans';
 import {syncDueVulnerabilityFeeds} from './intelligence';
@@ -20,18 +24,24 @@ export class Lifecycle implements OnModuleInit, OnModuleDestroy {
   private running = false;
   private intelligenceRunning = false;
   private activeScanRunning = false;
+  private probeLibraryRunning = false;
   private activeScanAbort = new AbortController();
   constructor(
     @Inject(Db) private db: Db,
     @Inject(Platform) private p: Platform,
   ) {}
   onModuleInit() {
-    this.timer = setInterval(() => {void this.sweep();void this.syncIntelligence();void this.scanActive()}, 60000);
+    this.timer = setInterval(() => {void this.sweep();void this.syncIntelligence();void this.scanActive();void this.syncProbeLibrary()}, 60000);
     this.timer.unref();
   }
   onModuleDestroy() {
     if (this.timer) clearInterval(this.timer);
     this.activeScanAbort.abort();
+  }
+  private async syncProbeLibrary(){
+    if(this.probeLibraryRunning)return;
+    this.probeLibraryRunning=true;
+    try{await runProbeRuleLibrarySync(this.db)}catch{Logger.warn('Probe library sync incomplete; previous verified snapshot remains available','Lifecycle')}finally{this.probeLibraryRunning=false}
   }
   private async scanActive(){
     if(this.activeScanRunning||this.activeScanAbort.signal.aborted)return;
@@ -41,7 +51,7 @@ export class Lifecycle implements OnModuleInit, OnModuleDestroy {
   private async syncIntelligence(){
     if(this.intelligenceRunning)return;
     this.intelligenceRunning=true;
-    try{await syncDueVulnerabilityFeeds(this.db)}catch{Logger.warn('Intelligence refresh failed; last valid snapshots remain available','Lifecycle')}finally{this.intelligenceRunning=false}
+    try{await syncDueVulnerabilityFeeds(this.db);await checkCrsSource(this.db,"scheduler")}catch{Logger.warn('Intelligence refresh failed; last valid snapshots remain available','Lifecycle')}finally{this.intelligenceRunning=false}
   }
   async sweep() {
     if (this.running) return;
@@ -81,6 +91,8 @@ export class Lifecycle implements OnModuleInit, OnModuleDestroy {
             },
           });
       });
+      await cleanupNetworkSensorEvents(this.db);
+      await cleanupMonitoring(this.db);
       await this.db.importBatch.updateMany({where:{status:'RUNNING',updatedAt:{lt:new Date(Date.now()-300000)}},data:{status:'FAILED',error:'导入进程中断或超时，可安全重试'}});
       await this.db.telemetryEvent.deleteMany({where:{expiresAt:{lt:new Date()}}});
       await sweepStorage(this.db);

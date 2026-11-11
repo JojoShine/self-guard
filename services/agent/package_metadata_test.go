@@ -34,3 +34,22 @@ func TestAlpineInstalledMetadataIsReadOnlyBoundedAndPreservesOrigin(t *testing.T
 		}
 	}
 }
+
+func TestRpmSigningKeyEntryDoesNotInvalidateCentOSInventory(t *testing.T) {
+	key := "gpg-pubkey\t0:f4a80eb5-53a7ff4b\t(none)\t\t(none)\trpm"
+	software := "bash\t0:4.2.46-35.el7\tbash-4.2.46-35.el7.src.rpm\t\tx86_64\trpm"
+	packages, status := parsePackageMetadata([]string{key, software}, PackageCollection{Complete: true, Reason: "collected"})
+	if !status.Complete || len(packages) != 1 || packages[0].Name != "bash" {
+		t.Fatalf("RPM signing key treated as broken software: %+v %+v", packages, status)
+	}
+	for _, invalid := range []string{
+		"bash\t0:4.2.46-35.el7\t(none)\t\t(none)\trpm",
+		"gpg-pubkey\tinvalid\t(none)\t\t(none)\trpm",
+		key + "\textra",
+	} {
+		_, coverage := parsePackageMetadata([]string{invalid}, PackageCollection{Complete: true})
+		if coverage.Complete {
+			t.Fatalf("malformed entry accepted: %q", invalid)
+		}
+	}
+}
