@@ -26,7 +26,7 @@ export function HostTrafficWorkspace({canManage=false,onAsset,onConfigure}:{canM
  },[assetId,revision]);
  function choose(id?:string){setAssetId(id);location.hash=hostTrafficHref(id)}
  return <div className="module-stack">
-  <ModuleSection title="选择要查看的主机" description="连接记录来自主机持续采集；协议记录用于查看 HTTP、DNS、TLS 等信息。两种来源独立标记，不重复累计流量。" extra={visibleAsset?<ModuleToolbar>{onAsset&&<Button onClick={()=>onAsset(visibleAsset.id)}>主机详情</Button>}{canManage&&onConfigure&&<Button onClick={()=>onConfigure(visibleAsset)}>采集配置</Button>}</ModuleToolbar>:<Button href="#enroll">接入主机与 Agent</Button>}>
+  <ModuleSection title="选择要查看的主机" description="连接记录来自主机持续采集；协议记录用于查看 HTTP、DNS、TLS 等信息。两种来源独立标记，不重复累计流量。" extra={visibleAsset?<ModuleToolbar>{onAsset&&<Button onClick={()=>onAsset(visibleAsset.id)}>主机详情</Button>}{canManage&&onConfigure&&<Button type="primary" onClick={()=>onConfigure(visibleAsset)}>启停与采集配置</Button>}</ModuleToolbar>:<Button href="#enroll">接入主机与 Agent</Button>}>
    <RecordSelect resource="assets" value={assetId} allowArchived ariaLabel="选择流量主机" placeholder="输入主机名称，查看连接与流量" onChange={(id:string|undefined)=>choose(id)}/>
   </ModuleSection>
   {error?<Alert type="error" showIcon message="读取主机信息失败" description={error} action={<Button onClick={()=>setRevision(value=>value+1)}>重试</Button>}/>:loading?<Spin tip="读取主机信息"><div className="module-stack" style={{minHeight:80}}/></Spin>:visibleAsset?<>

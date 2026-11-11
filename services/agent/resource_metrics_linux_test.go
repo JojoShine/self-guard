@@ -41,3 +41,20 @@ func TestResourceFilesystemsSkipRemoteMount(t *testing.T) {
 		t.Fatalf("remote mounts must remain an explicit gap: rows=%v complete=%v", rows, complete)
 	}
 }
+
+func TestResourceFilesystemsControlMountIsNotAGap(t *testing.T) {
+	rows, complete := resourceFilesystems("1 0 0:42 / / rw - ext4 /dev/root rw\n2 0 0:43 / /sys/fs/fuse/connections rw - fusectl fusectl rw\n")
+	if len(rows) != 1 || !complete {
+		t.Fatalf("control filesystem must not hide valid disk coverage: rows=%v complete=%v", rows, complete)
+	}
+}
+func TestResourceFilesystemsUnsupportedMountRemainsGap(t *testing.T) {
+	for _, kind := range []string{"nfs", "nfs4", "cifs", "fuse", "fuse.sshfs", "fuseblk"} {
+		t.Run(kind, func(t *testing.T) {
+			rows, complete := resourceFilesystems("1 0 0:42 / / rw - ext4 /dev/root rw\n2 0 0:43 / /remote rw - " + kind + " remote rw\n")
+			if len(rows) != 1 || complete {
+				t.Fatalf("unsupported data filesystem must remain a gap: rows=%v complete=%v", rows, complete)
+			}
+		})
+	}
+}

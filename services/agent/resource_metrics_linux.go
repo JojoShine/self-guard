@@ -72,6 +72,10 @@ func resourceFilesystems(body string) ([]resourceFilesystem, bool) {
 			complete = false
 			continue
 		}
+		// fusectl exposes FUSE control state, not a data filesystem.
+		if r[0] == "fusectl" {
+			continue
+		}
 		if r[0] == "nfs" || r[0] == "nfs4" || r[0] == "cifs" || strings.HasPrefix(r[0], "fuse") {
 			complete = false
 			continue

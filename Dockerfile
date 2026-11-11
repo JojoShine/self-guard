@@ -13,6 +13,12 @@ RUN go test ./... && CGO_ENABLED=0 go build -trimpath -o /intelligence-unzip .
 WORKDIR /scanner
 COPY services/scanner/ ./
 RUN go test ./... && CGO_ENABLED=0 go build -trimpath -o /selfguard-scanner ./cmd/scanner
+WORKDIR /access-probe
+COPY services/access-probe/ ./
+RUN go test ./... && mkdir -p /probe-artifacts && for arch in amd64 arm64; do CGO_ENABLED=0 GOOS=linux GOARCH=$arch go build -trimpath -o /probe-artifacts/selfguard-access-probe-linux-$arch .; done
+WORKDIR /suricata-bridge
+COPY services/suricata-bridge/ ./
+RUN go test ./... && for arch in amd64 arm64; do CGO_ENABLED=0 GOOS=linux GOARCH=$arch go build -trimpath -o /probe-artifacts/selfguard-suricata-bridge-linux-$arch .; done
 FROM ${NODE_BUILD_IMAGE} AS build
 COPY --from=helpers /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 RUN sed -i 's|http://deb.debian.org|https://deb.debian.org|g' /etc/apt/sources.list.d/debian.sources && apt-get -o Acquire::Retries=3 update && apt-get install -y --no-install-recommends openssl ca-certificates && rm -rf /var/lib/apt/lists/*
@@ -36,6 +42,7 @@ COPY --from=build /app/prisma ./prisma
 COPY apps/api/scripts ./scripts
 COPY apps/api/rule-sources ./rule-sources
 COPY bin ./bin
+COPY --from=helpers /probe-artifacts /opt/selfguard-probes
 COPY --from=helpers /agent-helper /usr/local/bin/selfguard-agent
 COPY --from=helpers /intelligence-unzip /usr/local/bin/intelligence-unzip
 COPY --from=helpers /selfguard-scanner /usr/local/bin/selfguard-scanner

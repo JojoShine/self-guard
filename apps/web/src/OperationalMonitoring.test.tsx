@@ -16,3 +16,11 @@ it('explains unavailable native metrics and unknown diagnostics without exposing
  const html=renderToStaticMarkup(<DatabaseRuntimeMetricView engine="mysql" samples={[]} metric={{schema:'selfguard-database-metrics-v1',database:'app',version:'8.0',capturedAt:'2026-11-11T00:00:00Z',status:'PARTIAL',issues:['DATABASE_SIZE_UNAVAILABLE','LOCK_AND_QUERY_METRICS_UNAVAILABLE','FUTURE_NATIVE_GAP'],connections:1}}/>);
  expect(html).toContain('数据库容量统计不可读取');expect(html).toContain('锁等待和长查询统计不可读取');expect(html).toContain('该版本存在未识别的统计缺口，请核对采集诊断');expect(html).not.toContain('FUTURE_NATIVE_GAP');
 });
+
+it('puts concrete host gaps in the summary while preserving stale and unknown states',()=>{
+ const html=renderToStaticMarkup(<MonitoringSummary state="PARTIAL" hostIssues={['FILESYSTEMS_PARTIAL']}/>);
+ expect(html).toContain('部分挂载未采集');expect(html).not.toContain('部分指标未取得');
+ const stale=renderToStaticMarkup(<MonitoringSummary state="STALE" hostIssues={['CPU_UNAVAILABLE','FUTURE_GAP']}/>);
+ expect(stale).toContain('采集已过期');expect(stale).toContain('CPU统计不可读取');expect(stale).toContain('采集器报告了未识别的限制项');expect(stale).not.toContain('FUTURE_GAP');expect(stale).toContain('缺失值保持未知');
+ expect(renderToStaticMarkup(<MonitoringSummary state="PARTIAL" hostIssues={[]}/>)).toContain('部分指标未取得');
+});
