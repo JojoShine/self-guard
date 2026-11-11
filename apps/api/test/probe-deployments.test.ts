@@ -49,3 +49,12 @@ test('configured detection rules require successful live rule loading',()=>{
  for(const stats of [{},{rulesLoaded:0,rulesFailed:0},{rulesLoaded:3,rulesFailed:1},{rulesLoaded:3}])assert.equal(probeReadiness({kind:'NETWORK',source:{...source,stats}},'asset',now).state,'ERROR');
  assert.equal(probeReadiness({kind:'NETWORK',source:{...source,stats:{rulesLoaded:3,rulesFailed:0}}},'asset',now).state,'READY');
 });
+
+test('access check accepts only fixed environment results and never marks readiness',async()=>{
+ const {accessCheckResult}=await import('../src/probe-deployments');
+ for(const marker of ['NOT_INSTALLED','NOT_RUNNING','RUNNING']){
+  const result=accessCheckResult('PROBE_CHECK_'+marker+'\n');assert.equal(result.status,'SUCCEEDED');assert.equal('readiness' in result,false);
+ }
+ for(const marker of ['ROOT_REQUIRED','SYSTEMD_REQUIRED'])assert.equal(accessCheckResult('PROBE_CHECK_'+marker).status,'FAILED');
+ for(const output of ['active','constructor','PROBE_CHECK_RUNNING\nprivate text','PROBE_COMMAND_OK'])assert.throws(()=>accessCheckResult(output));
+});

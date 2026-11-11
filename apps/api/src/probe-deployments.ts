@@ -53,6 +53,16 @@ export function networkCommandResult(output:string,action:'CHECK'|'INSTALL'|'STO
  if(action==='CHECK'){if(result.engineRunning===undefined||result.bridgeStatus===undefined)throw new Error('invalid result');return {status:'SUCCEEDED',detail:result.engineRunning&&result.bridgeStatus==='active'?'引擎与读取服务运行中，采集就绪仍以实时心跳和统计为准':'远程检查完成，采集服务尚未全部运行'};}
  if(result.commandCompleted!==true)throw new Error('invalid result');return null;
 }
+export function accessCheckResult(output:string){
+ const states:Record<string,{status:string;detail:string}>={
+  PROBE_CHECK_NOT_INSTALLED:{status:'SUCCEEDED',detail:'检查完成：访问探针尚未安装'},
+  PROBE_CHECK_NOT_RUNNING:{status:'SUCCEEDED',detail:'检查完成：访问探针服务未全部运行，采集就绪以实时心跳为准'},
+  PROBE_CHECK_RUNNING:{status:'SUCCEEDED',detail:'检查完成：访问探针服务运行中，采集就绪仍以当前配置的实时心跳为准'},
+  PROBE_CHECK_ROOT_REQUIRED:{status:'FAILED',detail:'环境检查未通过：需要 root 管理连接'},
+  PROBE_CHECK_SYSTEMD_REQUIRED:{status:'FAILED',detail:'环境检查未通过：目标主机需要 systemd 和 systemctl'},
+ };
+ const marker=output.trim(),result=Object.hasOwn(states,marker)?states[marker]:undefined;if(!result)throw new RemoteSshError('环境检查未返回有效结果，请核对实际状态',true);return result;
+}
 function publicJob(job:AssetRemoteJob|null){if(!job)return null;const config=persistedConfig.parse(job.config);return {id:job.id,status:job.status,action:config.action,detail:job.detail,createdAt:job.createdAt,updatedAt:job.updatedAt};}
 export function assertProbeWriter(user:Pick<User,'role'|'disabled'|'dataScope'>){if(user.disabled||user.role!=='ADMIN')throw new ForbiddenException('探针远程操作需要有效管理员权限');assertGlobal(user);assertEvidence(user);}
 @Injectable()
@@ -110,7 +120,7 @@ export class ProbeDeploymentsService implements OnModuleInit,OnModuleDestroy{
    if(config.action==='INSTALL'){const current=await this.source(user,config);if(!current.source.enabled||current.source.version!==value.source.version)throw new ConflictException();}
    const command=value.kind==='ACCESS'?accessProbeCommand(config.sourceId,config.action):networkProbeCommand(config.sourceId,config.action,{interface:config.interface,image:process.env.NETWORK_PROBE_IMAGE,evePath:value.source.evePath,ruleFile:value.source.ruleFile||undefined,expectedRuleSha256:value.source.expectedRuleSha256||undefined});
    const output=await ssh(command,'',240000);status='SUCCEEDED';detail=config.action==='STOP'?'停止命令已完成；请核对实际采集状态':config.action==='CHECK'?'远程检查命令已完成；采集就绪以来源实时心跳为准':'安装命令已完成，正在等待真实采集心跳及引擎验收';
-   if(value.kind==='NETWORK'){const result=networkCommandResult(output,config.action);if(result){status=result.status;detail=result.detail;}}else if(!output.includes('PROBE_COMMAND_OK'))throw new RemoteSshError('探针命令未返回完成标识，请核对实际状态',true);
+   if(value.kind==='NETWORK'){const result=networkCommandResult(output,config.action);if(result){status=result.status;detail=result.detail;}}else if(config.action==='CHECK'){const result=accessCheckResult(output);status=result.status;detail=result.detail;}else if(!output.includes('PROBE_COMMAND_OK'))throw new RemoteSshError('探针命令未返回完成标识，请核对实际状态',true);
   }catch(error){if(status==='SUCCEEDED'){status='UNKNOWN';detail='命令返回格式未确认，请检查实际服务状态';}if(error instanceof RemoteSshError){status=error.uncertain?'UNKNOWN':'FAILED';detail=error.message;}else if(error instanceof BadRequestException||error instanceof ConflictException){detail='来源配置或运行条件不满足，请核对启用状态、版本、平台入口与管理连接';}}
   await this.db.assetRemoteJob.updateMany({where:{id:job.id,status:'RUNNING'},data:{status,detail,leaseUntil:null}});
   await this.db.audit.create({data:{actor:'probe-worker',action:'PROBE_DEPLOYMENT_'+status,resource:'assets',resourceId:job.assetId,detail:{jobId:job.id}}});

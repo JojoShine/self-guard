@@ -40,3 +40,16 @@ test('actual transfer script rejects symlinks at either ancestor before writing 
   symlinkSync(target,join(f.root,ancestor));const result=f.execute(transfer.command,transfer.input);assert.notEqual(result.status,0);assert.equal(existsSync(join(target,id)),false);assert.equal(existsSync(join(target,'selfguard-probes')),false);
  }finally{f.clean();}}
 });
+
+test('actual CHECK reports uninstalled and inactive services without command failure',()=>{
+ const f=fixture();try{
+  writeFileSync(join(f.root,'bin','systemctl'),'#!/bin/sh\nexit 3\n',{mode:0o755});
+  let result=f.execute(accessProbeCommand(id,'CHECK'));assert.equal(result.status,0,result.stderr);assert.match(result.stdout,/PROBE_CHECK_NOT_INSTALLED/);
+  for(const suffix of ['','-capture'])writeFileSync(join(f.root,'systemd','selfguard-access-'+id+suffix+'.service'),'ExecStart=/usr/local/libexec/selfguard-access-probe-0.1.6 --config /etc/selfguard-probe/'+id+'/config.json\n');
+  result=f.execute(accessProbeCommand(id,'CHECK'));assert.equal(result.status,0,result.stderr);assert.match(result.stdout,/PROBE_CHECK_NOT_RUNNING/);
+  writeFileSync(join(f.root,'bin','systemctl'),'#!/bin/sh\nexit 0\n',{mode:0o755});
+  result=f.execute(accessProbeCommand(id,'CHECK'));assert.equal(result.status,0,result.stderr);assert.match(result.stdout,/PROBE_CHECK_RUNNING/);
+  rmSync(join(f.root,'run'),{recursive:true});result=f.execute(accessProbeCommand(id,'CHECK'));assert.equal(result.status,0);assert.match(result.stdout,/PROBE_CHECK_SYSTEMD_REQUIRED/);
+  writeFileSync(join(f.root,'bin','id'),'#!/bin/sh\necho 1000\n',{mode:0o755});result=f.execute(accessProbeCommand(id,'CHECK'));assert.equal(result.status,0);assert.match(result.stdout,/PROBE_CHECK_ROOT_REQUIRED/);
+ }finally{f.clean();}
+});

@@ -48,7 +48,18 @@ export function accessProbeCommand(id:string,action:'INSTALL'|'STOP'|'CHECK'){
  const command=action==='INSTALL'?`${quote(directory+'/selfguard-access-probe')} --install-config ${quote(directory+'/config.json')} >/dev/null 2>&1`:action==='STOP'?`for suffix in '' '-capture'; do
  unit=${quote(unit)}"$suffix.service"
  if [ -f "/etc/systemd/system/$unit" ]; then systemctl disable --now "$unit"; fi
-done`:`systemctl is-active ${quote(unit+'.service')} ${quote(unit+'-capture.service')}`;
+done`:`present=0
+running=0
+for suffix in '' '-capture'; do
+ unit=${quote(unit)}"$suffix.service"
+ if [ -f "/etc/systemd/system/$unit" ]; then
+  present=$((present+1))
+  if systemctl is-active --quiet "$unit" >/dev/null 2>&1; then running=$((running+1)); fi
+ fi
+done
+if [ "$present" = 0 ]; then printf 'PROBE_CHECK_NOT_INSTALLED\\n';
+elif [ "$running" = 2 ]; then printf 'PROBE_CHECK_RUNNING\\n';
+else printf 'PROBE_CHECK_NOT_RUNNING\\n'; fi`;
  const guard=`for suffix in '' '-capture'; do
  unit=${quote(unit)}"$suffix.service"
  path="/etc/systemd/system/$unit"
@@ -59,5 +70,8 @@ done`:`systemctl is-active ${quote(unit+'.service')} ${quote(unit+'-capture.serv
   grep -F 'ExecStart=/usr/local/libexec/selfguard-access-probe-' "$path" >/dev/null
  fi
 done`;
- return 'sh -c '+quote('set -eu\n'+guard+'\n'+command+'\nprintf "PROBE_COMMAND_OK\\n"');
+ const preflight=action==='CHECK'?`if [ "$(id -u)" != 0 ]; then printf 'PROBE_CHECK_ROOT_REQUIRED\\n'; exit 0; fi
+if [ ! -d /run/systemd/system ] || ! command -v systemctl >/dev/null 2>&1; then printf 'PROBE_CHECK_SYSTEMD_REQUIRED\\n'; exit 0; fi
+`:'';
+ return 'sh -c '+quote('set -eu\n'+preflight+guard+'\n'+command+(action==='CHECK'?'':'\nprintf "PROBE_COMMAND_OK\\n"'));
 }
