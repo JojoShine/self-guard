@@ -27,6 +27,11 @@ class RunnerTests(unittest.TestCase):
  def test_expiry_rejects_unowned_directory(self):
   with tempfile.TemporaryDirectory() as t:
    with self.assertRaises(self.r.Failure):self.r.expire_logs(Path(t).resolve(),'other',now=1794456000)
+ def test_reinstallation_cannot_retarget_a_pending_private_queue(self):
+  before={'instanceId':'one','assetId':'host','sourcePath':'/original/logs','engine':'postgresql','format':'postgresql-csv-sql','server':'https://platform.invalid','token':'previous'}
+  self.r.assert_existing_binding(before,{**before,'token':'rotated'})
+  for field,value in [('sourcePath','/different/logs'),('server','https://elsewhere.invalid'),('format','audit-sql-json'),('assetId','other-host')]:
+   with self.assertRaises(self.r.Failure):self.r.assert_existing_binding(before,{**before,field:value})
  def test_installed_retention_program_is_executable(self):
   compile(self.r.RETENTION_SCRIPT,"installed-retention.py","exec")
  def test_units_only_start_owned_collector_and_never_restart_database(self):

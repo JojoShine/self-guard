@@ -1,7 +1,7 @@
 import {expect,it,vi} from 'vitest';
 import {renderToStaticMarkup} from 'react-dom/server';
 vi.mock('./api',()=>({api:vi.fn()}));
-import {onboardingPermission,DatabaseOnboardingResult,DatabaseOnboardingScope} from './DatabaseOnboardingPanel';
+import {onboardingOperationState,onboardingPermission,DatabaseOnboardingResult,DatabaseOnboardingScope} from './DatabaseOnboardingPanel';
 it('requires a current successful check for every target and instance revision',()=>{
  expect(onboardingPermission('a','b','CHECKED')).toEqual({install:false,prepare:false});
  expect(onboardingPermission('a','a','CHECKED')).toEqual({install:true,prepare:false});
@@ -21,4 +21,15 @@ it('does not treat installation as actual SQL arrival',()=>{
 it('explains service-wide PostgreSQL logging and FILE retention separately',()=>{
  for(const deployment of ['HOST','DOCKER'] as const){const html=renderToStaticMarkup(<DatabaseOnboardingScope deployment={deployment}/>);for(const text of ['整个PostgreSQL服务','全部数据库SQL','不是采集过滤','独立权限与7天期限'])expect(html).toContain(text)}
  const html=renderToStaticMarkup(<DatabaseOnboardingScope deployment="FILE"/>);expect(html).toContain('原始日志保留由原系统管理');expect(html).toContain('不负责删除原始日志');expect(html).not.toContain('全部数据库SQL');
+});
+
+it('preserves same-target install results across instance revision changes without reauthorizing checks',()=>{
+ const targetKey=JSON.stringify(['instance','host',{deployment:'HOST',port:5432,database:'postgres'}]);
+ const operation={targetKey,jobId:'installed-job'};
+ const job={id:'installed-job',status:'SUCCEEDED',action:'INSTALL' as const,detail:'INSTALLED',updatedAt:'later',result:{state:'INSTALLED' as const}};
+ expect(onboardingOperationState(operation,targetKey,job)).toBe('INSTALLED');
+ expect(onboardingPermission('new-revision','old-revision','CHECKED').install).toBe(false);
+ expect(onboardingOperationState(operation,'different-target',job)).toBeUndefined();
+ expect(onboardingOperationState(operation,targetKey,{...job,id:'other-job'})).toBeUndefined();
+ expect(onboardingOperationState(operation,targetKey,{...job,action:'CHECK'})).toBeUndefined();
 });

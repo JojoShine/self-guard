@@ -1,3 +1,4 @@
+import {bindIndependentDatabaseSource} from './database-monitor-binding';
 import {Body,Controller,Get,Post,Param,Query,Req,UseGuards,Inject,Injectable,OnModuleInit,OnModuleDestroy,ConflictException,ForbiddenException,UnauthorizedException,BadRequestException,Logger} from '@nestjs/common';
 import {AssetRemoteJob,Prisma,User} from '@prisma/client';
 import {z} from 'zod';
@@ -87,7 +88,7 @@ export class DatabaseOnboardingService implements OnModuleInit,OnModuleDestroy{
  }
  if(c.action==='INSTALL'&&result.state==='INSTALLED'){
  if(!result.sourcePath||!result.format)throw new Error();assertDatabaseRuleEngine(instance.engine,{service:result.format});const bound={assetId:asset.id,path:result.sourcePath,format:result.format};
- await this.db.$transaction(async tx=>{await tx.$queryRaw`SELECT id FROM "Asset" WHERE id=${asset.id} FOR UPDATE`;const a=await tx.asset.findUniqueOrThrow({where:{id:asset.id}}),u=await tx.user.findUniqueOrThrow({where:{id:user.id}});writer(u);await assertScope(tx,u,'assets',asset.id);if(a.archivedAt||a.tokenHash!==asset.tokenHash)throw new ConflictException();const sources=instanceInput.shape.auditSources.parse(instance.auditSources);if(sources.some(s=>s.assetId===bound.assetId&&s.path===bound.path&&s.format!==bound.format))throw new ConflictException();if(!sources.some(s=>isDeepStrictEqual(s,bound)))sources.push(bound);if(sources.length>20)throw new ConflictException();const changed=await tx.databaseInstance.updateMany({where:{id:instance.id,updatedAt:instance.updatedAt,archivedAt:null},data:{auditSources:sources}});if(!changed.count)throw new ConflictException();});
+ await this.db.$transaction(async tx=>{await tx.$queryRaw`SELECT id FROM "Asset" WHERE id=${asset.id} FOR UPDATE`;const a=await tx.asset.findUniqueOrThrow({where:{id:asset.id}}),u=await tx.user.findUniqueOrThrow({where:{id:user.id}});writer(u);await assertScope(tx,u,'assets',asset.id);if(a.archivedAt||a.tokenHash!==asset.tokenHash)throw new ConflictException();await bindIndependentDatabaseSource(tx,instance,bound);});
  }
  if(result.state!=='BLOCKED'&&result.state!=='WAITING_RESTART'&&result.state!==({CHECK:'CHECKED',INSTALL:'INSTALLED',PREPARE:'CHECKED',STOP:'STOPPED'} as const)[c.action])throw new Error('Unexpected operation result');
  status=onboardingJobState(result.state);detail=result.detailCode;

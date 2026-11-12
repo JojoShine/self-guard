@@ -172,6 +172,10 @@ def identity(r):
  c=private_json('/etc/selfguard-agent/collector.json');i=private_json('/var/lib/selfguard-agent/identity.json')
  require(i.get('assetId')==r['assetId'] and isinstance(i.get('token'),str) and i['token'],'AGENT_IDENTITY_MISMATCH')
  return c,i
+def assert_existing_binding(before,after):
+ # Pending events and cursors belong to one source and one platform. Rotating
+ # a credential is safe; silently reusing them for a different target is not.
+ require(all(before.get(k)==after.get(k) for k in ['instanceId','assetId','sourcePath','engine','format','server']),'CONFIGURATION_CHANGED')
 def target_result(r,p=None):
  if r['target']['deployment']=='FILE':
   source=safe_path(r['target']['sourcePath']);require(source.is_file() or source.is_dir(),'SOURCE_UNREADABLE')
@@ -222,6 +226,7 @@ def execute(r):
   if existing.exists() or existing.is_symlink():
    safe_path(existing);require(existing.is_file() and existing.read_text().startswith('# SelfGuard database monitor '+r['instanceId']+'\n'),'UNIT_NOT_OWNED')
  config={'schema':'selfguard-database-monitor-v1','instanceId':r['instanceId'],'assetId':r['assetId'],'sourcePath':str(source),'engine':r['engine'],'format':result['format'],'stateDir':str(state),'server':c['Server'],'token':i['token']}
+ if (root/'config.json').exists():assert_existing_binding(private_json(root/'config.json'),config)
  source_stat=source.stat()
  # Kept separately so the collector's strict config need not accept expiry internals.
  retention={'sourcePath':str(source),'sourceIdentity':[source_stat.st_dev,source_stat.st_ino]}

@@ -1,3 +1,4 @@
+import {baseAgentDatabaseSources} from './database-monitor-binding';
 import {storeHostMetrics} from './monitoring';
 import {monitorReportInput} from './traffic-monitor-contract';
 import {storeMonitorReport,monitorDesired} from './traffic-monitor';
@@ -202,10 +203,11 @@ export class AgentController {
   @Get("policy") async policy(@Req() req: any) {
     const asset=await this.identity(req);
     const instances=typeof req.query?.capabilities==='string'&&req.query.capabilities.split(',').includes('data-security-v2')?await this.db.databaseInstance.findMany({where:{hostIds:{has:asset.id},archivedAt:null},select:{id:true,engine:true,auditSources:true}}):[];
+    const bindings=instances.length?await this.db.setting.findMany({where:{key:{startsWith:'database-monitor-binding:'+asset.id+':'}}}):[];
     const instanceIds=new Set(instances.map(i=>i.id));
     return {
       asset:{id:asset.id,tags:asset.tags,business:asset.business},
-      databaseSources:instances.flatMap(instance=>{const sources=z.array(z.object({assetId:z.string(),path:z.string(),format:z.string()})).parse(instance.auditSources);return sources.filter(source=>source.assetId===asset.id).map(source=>({instanceId:instance.id,engine:instance.engine,path:source.path,service:source.format}));}),
+      databaseSources:baseAgentDatabaseSources(asset.id,instances,bindings),
       rules: (await this.db.rule.findMany({
         where: { enabled: true, kind: { in: ["BASELINE", "LOG", "FIM"] } },
         orderBy: { id: "asc" },
