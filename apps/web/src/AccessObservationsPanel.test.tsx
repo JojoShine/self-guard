@@ -1,7 +1,7 @@
 import {describe,it,expect,vi} from 'vitest';
 import {renderToStaticMarkup} from 'react-dom/server';
 vi.mock('./api',()=>({api:vi.fn()}));
-import {AccessObservationDetails,AccessRiskSummary,evidencePreview,exportableEvidenceParts} from './AccessObservationsPanel';
+import {AccessObservationsPanel,pinnedAccessFilters,AccessObservationDetails,AccessRiskSummary,evidencePreview,exportableEvidenceParts} from './AccessObservationsPanel';
 import {resolveNavigation} from './navigation';
 describe('effective access evidence',()=>{
  it('explains ordinary sensitive access separately from rule-based alert grading',()=>{
@@ -17,4 +17,12 @@ describe('effective access evidence',()=>{
  });
  it('only offers a whole-message download when all ordered parts are present and live',()=>{const part={id:'one',direction:'RESPONSE',sequence:0,bytes:4,sha256:'a'.repeat(64),capturedAt:new Date().toISOString(),expiresAt:new Date(Date.now()+60000).toISOString(),available:true};expect(exportableEvidenceParts([part],4,'RESPONSE')).toHaveLength(1);for(const invalid of [[{...part,sequence:1}],[{...part,available:false}],[{...part,bytes:3}],[]])expect(exportableEvidenceParts(invalid,4,'RESPONSE')).toHaveLength(0);});
  it('renders binary and long evidence with explicit display limits',()=>{expect(evidencePreview('AP8B').mode).toBe('HEX');expect(evidencePreview(btoa('hello')).text).toBe('hello');const result=evidencePreview(btoa('a'.repeat(70000)));expect(result.truncated).toBe(true);expect(result.text.length).toBeLessThan(70000);});
+});
+
+it('keeps an embedded instance when clearing or replacing URL filters',()=>{
+ expect(pinnedAccessFilters({},'fixed')).toEqual({instanceId:'fixed'});
+ expect(pinnedAccessFilters({instanceId:'other',sourceId:'source'},'fixed')).toEqual({instanceId:'fixed',sourceId:'source'});
+ expect(pinnedAccessFilters({instanceId:'other'})).toEqual({instanceId:'other'});
+ vi.stubGlobal('location',{hash:'#data-access?instanceId=other&recordId=foreign'});
+ try{const html=renderToStaticMarkup(<AccessObservationsPanel instanceId="fixed"/>);expect(html).toContain('fixed');expect(html).not.toContain('foreign');expect(html).toContain('不能关闭数据库TLS');expect(html).toContain('配置采集覆盖与探针')}finally{vi.unstubAllGlobals()}
 });
