@@ -420,8 +420,8 @@ function Application() {
 
   useEffect(() => {
     setSelected([]);
-    if (session.token) void refresh();
-  }, [session.token, page, q, sev, status, number,extraFilters,pageSize]);
+    if (session.token && user?.id) void refresh();
+  }, [session.token, user?.id, page, q, sev, status, number,extraFilters,pageSize]);
   async function action(path: string, body: unknown, method?: string) {
     const version=detailRequestVersion.current;
     setBusy(true);
