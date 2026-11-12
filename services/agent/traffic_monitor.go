@@ -397,6 +397,61 @@ func runTrafficMonitor(configFile string) error {
 	return runTrafficMonitorSession(ctx, a, c, q, captureTrafficMonitor)
 }
 
+// A failed writer returns ownership of every accepted but unpersisted window.
+// The caller must not mistake an in-memory handoff for a durable acknowledgement.
+type trafficMonitorWriteError struct {
+	cause   error
+	pending []*TrafficSummary
+}
+
+func (e *trafficMonitorWriteError) Error() string {
+	return fmt.Sprintf("traffic monitor persistence failed; %d accepted windows remain unpersisted: %v", len(e.pending), e.cause)
+}
+func (e *trafficMonitorWriteError) Unwrap() error { return e.cause }
+
+func captureTrafficMonitorBuffered(ctx context.Context, c TrafficCaptureConfig, capture func(context.Context, TrafficCaptureConfig, func(*TrafficSummary) error) error, emit func(*TrafficSummary) error) error {
+	// Eight bounded, metadata-only windows absorb short fsync/mutex stalls.
+	// Saturation applies backpressure instead of discarding a completed window;
+	// the capture socket continues to report any resulting kernel loss honestly.
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	windows := make(chan *TrafficSummary, 8)
+	failed := make(chan struct{})
+	writerDone := make(chan error, 1)
+	go func() {
+		for summary := range windows {
+			if err := emit(summary); err != nil {
+				close(failed)
+				cancel()
+				pending := []*TrafficSummary{summary}
+				for remaining := range windows {
+					pending = append(pending, remaining)
+				}
+				writerDone <- &trafficMonitorWriteError{cause: err, pending: pending}
+				return
+			}
+		}
+		writerDone <- nil
+	}()
+	captureErr := capture(ctx, c, func(summary *TrafficSummary) error {
+		select {
+		case <-failed:
+			return errors.New("traffic monitor persistence failed")
+		default:
+		}
+		select {
+		case <-failed:
+			return errors.New("traffic monitor persistence failed")
+		case windows <- summary:
+			return nil
+		}
+	})
+	close(windows)
+	// Cancellation stops capture, not the writer: accepted windows must be drained
+	// before terminal state is persisted or a stopped monitor is acknowledged.
+	return errors.Join(captureErr, <-writerDone)
+}
+
 func runTrafficMonitorSession(ctx context.Context, a *Agent, c TrafficMonitorConfig, q *trafficMonitorQueue, capture func(context.Context, TrafficCaptureConfig, func(*TrafficSummary) error) error) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -421,7 +476,7 @@ func runTrafficMonitorSession(ctx context.Context, a *Agent, c TrafficMonitorCon
 	done := make(chan error, 1)
 	wake := make(chan struct{}, 1)
 	go func() {
-		done <- capture(ctx, c.Capture, func(s *TrafficSummary) error {
+		done <- captureTrafficMonitorBuffered(ctx, c.Capture, capture, func(s *TrafficSummary) error {
 			status := "RUNNING"
 			if ctx.Err() != nil {
 				status = "STOPPED"

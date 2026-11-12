@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -431,5 +432,182 @@ func TestTrafficMonitorByteBudgetPreservesEveryBoundaryPacket(t *testing.T) {
 	w.summary.StopReason = "FLOW_LIMIT"
 	if s := w.roll(start, false); s.Complete || s.StopReason != "FLOW_LIMIT" {
 		t.Fatal("flow limit loss hidden")
+	}
+}
+
+func TestTrafficMonitorBufferedEmitterKeepsCaptureOffSlowPersistence(t *testing.T) {
+	blocked := make(chan struct{})
+	release := make(chan struct{})
+	captured := make(chan struct{})
+	done := make(chan error, 1)
+	var order []int
+	capture := func(ctx context.Context, c TrafficCaptureConfig, emit func(*TrafficSummary) error) error {
+		for i := 1; i <= 4; i++ {
+			s := newTrafficSummary(c, time.Now())
+			s.Packets = i
+			if err := emit(s); err != nil {
+				return err
+			}
+		}
+		close(captured)
+		return nil
+	}
+	go func() {
+		done <- captureTrafficMonitorBuffered(context.Background(), monitorFixture().Capture, capture, func(s *TrafficSummary) error {
+			if s.Packets == 1 {
+				close(blocked)
+				<-release
+			}
+			order = append(order, s.Packets)
+			return nil
+		})
+	}()
+	<-blocked
+	select {
+	case <-captured:
+	case <-time.After(time.Second):
+		close(release)
+		t.Fatal("capture blocked on persistence")
+	}
+	select {
+	case <-done:
+		t.Fatal("returned before queued metadata was persisted")
+	default:
+	}
+	close(release)
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if fmt.Sprint(order) != "[1 2 3 4]" {
+		t.Fatal("reordered or lost windows", order)
+	}
+}
+func TestTrafficMonitorBufferedEmitterBackpressurePreservesEveryWindow(t *testing.T) {
+	blocked := make(chan struct{})
+	release := make(chan struct{})
+	captured := make(chan struct{})
+	done := make(chan error, 1)
+	persisted := 0
+	capture := func(ctx context.Context, c TrafficCaptureConfig, emit func(*TrafficSummary) error) error {
+		for i := 0; i < 32; i++ {
+			if err := emit(newTrafficSummary(c, time.Now())); err != nil {
+				return err
+			}
+		}
+		close(captured)
+		return nil
+	}
+	go func() {
+		done <- captureTrafficMonitorBuffered(context.Background(), monitorFixture().Capture, capture, func(s *TrafficSummary) error {
+			if persisted == 0 {
+				close(blocked)
+				<-release
+			}
+			persisted++
+			return nil
+		})
+	}()
+	<-blocked
+	select {
+	case <-captured:
+		close(release)
+		t.Fatal("unbounded queue accepted 32 blocked windows")
+	case <-time.After(20 * time.Millisecond):
+	}
+	close(release)
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if persisted != 32 {
+		t.Fatal("backpressure lost windows", persisted)
+	}
+}
+func TestTrafficMonitorBufferedEmitterPropagatesWriterFailure(t *testing.T) {
+	expected := fmt.Errorf("persistence failed")
+	capture := func(ctx context.Context, c TrafficCaptureConfig, emit func(*TrafficSummary) error) error {
+		for i := 0; i < 32; i++ {
+			if err := emit(newTrafficSummary(c, time.Now())); err != nil {
+				return err
+			}
+		}
+		<-ctx.Done()
+		return ctx.Err()
+	}
+	if err := captureTrafficMonitorBuffered(context.Background(), monitorFixture().Capture, capture, func(*TrafficSummary) error { return expected }); !errors.Is(err, expected) {
+		t.Fatal("writer failure lost", err)
+	}
+}
+
+func TestTrafficMonitorBufferedEmitterSurvivesDurableQueueMutexStall(t *testing.T) {
+	q := &trafficMonitorQueue{path: t.TempDir() + "/state.json", state: trafficMonitorState{MonitorID: "monitor"}}
+	q.mu.Lock()
+	captured := make(chan struct{})
+	done := make(chan error, 1)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	capture := func(ctx context.Context, c TrafficCaptureConfig, emit func(*TrafficSummary) error) error {
+		for i := 0; i < 4; i++ {
+			if err := emit(newTrafficSummary(c, time.Now())); err != nil {
+				return err
+			}
+		}
+		close(captured)
+		return nil
+	}
+	go func() {
+		done <- captureTrafficMonitorBuffered(ctx, monitorFixture().Capture, capture, func(s *TrafficSummary) error { return q.enqueue("RUNNING", s, "window") })
+	}()
+	select {
+	case <-captured:
+	case <-time.After(time.Second):
+		q.mu.Unlock()
+		t.Fatal("durable queue mutex stalled receive work")
+	}
+	cancel()
+	q.mu.Unlock()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	restored, err := loadTrafficMonitorQueue(q.path, "monitor")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(restored.state.Pending) != 4 || restored.state.DroppedWindows != 0 {
+		t.Fatalf("cancel did not drain accepted windows: %+v", restored.state)
+	}
+}
+
+func TestTrafficMonitorBufferedEmitterReturnsEveryUnpersistedWindowOnFailure(t *testing.T) {
+	release := make(chan struct{})
+	captured := make(chan struct{})
+	done := make(chan error, 1)
+	expected := fmt.Errorf("durable storage unavailable")
+	capture := func(ctx context.Context, c TrafficCaptureConfig, emit func(*TrafficSummary) error) error {
+		for i := 1; i <= 4; i++ {
+			s := newTrafficSummary(c, time.Now())
+			s.Packets = i
+			if err := emit(s); err != nil {
+				return err
+			}
+		}
+		close(captured)
+		<-ctx.Done()
+		return ctx.Err()
+	}
+	calls := 0
+	go func() {
+		done <- captureTrafficMonitorBuffered(context.Background(), monitorFixture().Capture, capture, func(*TrafficSummary) error { calls++; <-release; return expected })
+	}()
+	<-captured
+	close(release)
+	err := <-done
+	var failure *trafficMonitorWriteError
+	if !errors.Is(err, expected) || !errors.As(err, &failure) || len(failure.pending) != 4 || calls != 1 {
+		t.Fatalf("failed transfer ownership lost or duplicated: %v calls=%d", err, calls)
+	}
+	for i, s := range failure.pending {
+		if s.Packets != i+1 {
+			t.Fatal("pending window order lost", i, s.Packets)
+		}
 	}
 }
