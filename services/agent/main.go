@@ -476,6 +476,13 @@ func (a *Agent) cycle() error {
 	return a.sendResults()
 }
 func main() {
+	if len(os.Args) == 3 && (os.Args[1] == "--database-monitor" || os.Args[1] == "--database-monitor-expire") {
+		if err := runDatabaseMonitor(os.Args[2], os.Args[1] == "--database-monitor-expire"); err != nil {
+			fmt.Fprintln(os.Stderr, "database monitor stopped; check private state and authorized source")
+			os.Exit(1)
+		}
+		return
+	}
 	if len(os.Args) == 2 && os.Args[1] == "--resource-metrics-snapshot" {
 		snapshotAgent := &Agent{}
 		snapshotAgent.collectResourceMetrics()

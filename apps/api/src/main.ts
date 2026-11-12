@@ -1,3 +1,6 @@
+import {DatabaseOnboardingController,DatabaseOnboardingService,AgentDatabaseMonitorController} from './database-onboarding';
+import {auditDatabaseProvider} from './audit-db';
+import {AgentDatabaseAuditController,DatabaseAuditImportController,AuditAuthGuard} from './database-audit-ingress';
 import {ProbeDeploymentsController,ProbeDeploymentsService} from './probe-deployments';
 import {ProbeRuleLibraryController} from './probe-rule-library';
 import {VulnerabilityWorkspaceController} from './vulnerability-workspace';
@@ -97,7 +100,7 @@ class Errors implements ExceptionFilter {
   }
 }
 @Module({
-  controllers: [ProbeDeploymentsController,ProbeRuleLibraryController,VulnerabilityWorkspaceController,PostgresMonitoringController,MonitoringController,FindingTriageController,SecurityReadinessController,NetworkSensorsController,SensorIngestController,AccessObservationsController,AccessSourcesController,AccessProbeController,RuleSourceStatusController,DatabaseInstancesController,AssetDiscoveryController,DataGovernanceController,DeploymentHealthController,AgentPlatformController,AssetRemoteController,HostWafController,ScanExecutionIdentitiesController,RecordOptionsController,ActiveScansController,ScanTemplatesController,ScanEndpointsController,ScansController,VulnerabilityFeedsController,WafBundlesController,WafDeploymentsController,SshInstallationsController,AgentReleasesController,InstallationsController,AgentBootstrapController,
+  controllers: [DatabaseOnboardingController,AgentDatabaseMonitorController,AgentDatabaseAuditController,DatabaseAuditImportController,ProbeDeploymentsController,ProbeRuleLibraryController,VulnerabilityWorkspaceController,PostgresMonitoringController,MonitoringController,FindingTriageController,SecurityReadinessController,NetworkSensorsController,SensorIngestController,AccessObservationsController,AccessSourcesController,AccessProbeController,RuleSourceStatusController,DatabaseInstancesController,AssetDiscoveryController,DataGovernanceController,DeploymentHealthController,AgentPlatformController,AssetRemoteController,HostWafController,ScanExecutionIdentitiesController,RecordOptionsController,ActiveScansController,ScanTemplatesController,ScanEndpointsController,ScansController,VulnerabilityFeedsController,WafBundlesController,WafDeploymentsController,SshInstallationsController,AgentReleasesController,InstallationsController,AgentBootstrapController,
     CertificateController,WafCertificatesController,
     AssetHistoryController,StorageController,RuleToolsController,RepairTemplatesController,
     ReadinessController,
@@ -116,7 +119,7 @@ class Errors implements ExceptionFilter {
     WorkloadController,
     PlatformController,
   ],
-  providers: [ProbeDeploymentsService,PostgresMonitoringService,AccessObservationService,AssetRemoteService,SshInstallationService,InstallationService,Db, AuthGuard, Platform, Lifecycle,DeliveryService,CorrelationService,CertificateService,{provide:APP_INTERCEPTOR,useClass:ScopeResponseInterceptor}],
+  providers: [DatabaseOnboardingService,auditDatabaseProvider,AuditAuthGuard,ProbeDeploymentsService,PostgresMonitoringService,AccessObservationService,AssetRemoteService,SshInstallationService,InstallationService,Db, AuthGuard, Platform, Lifecycle,DeliveryService,CorrelationService,CertificateService,{provide:APP_INTERCEPTOR,useClass:ScopeResponseInterceptor}],
 })
 class AppModule {}
 async function main() {

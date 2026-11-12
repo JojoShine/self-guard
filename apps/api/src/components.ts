@@ -3,8 +3,6 @@ import {monitorReportInput} from './traffic-monitor-contract';
 import {storeMonitorReport,monitorDesired} from './traffic-monitor';
 import type {Response} from 'express';
 import {readHostWafImage} from './host-waf-image';
-import {databaseEventInput} from './database-contract';
-import {ingestDatabaseEvents} from './database-audit';
 import {recordCandidates} from './asset-discovery';
 import {HostWafController} from './host-waf';
 import {trafficCaptureInput} from './traffic-capture';
@@ -161,7 +159,6 @@ export class AgentController {
       return {token,nodeId:'host-'+asset.id};
     });
   }
-  @Post('database-audit') async databaseAudit(@Req()req:any,@Body()body:unknown){const asset=await this.identity(req);const v=parse(z.object({events:z.array(databaseEventInput).min(1).max(100)}).strict(),body);return this.db.$transaction(async tx=>{await this.currentIdentity(tx,asset.id,req);return ingestDatabaseEvents(tx,this.p,v.events,asset.id);},{timeout:30000});}
   @Post("heartbeat") async heartbeat(@Req() req: any, @Body() body: unknown) {
     const a = await this.identity(req);
     const v = parse(

@@ -7,6 +7,7 @@ ENV GOTOOLCHAIN=local
 WORKDIR /agent
 COPY services/agent/go.mod services/agent/*.go ./
 RUN go test ./... && CGO_ENABLED=0 go build -trimpath -o /agent-helper .
+RUN mkdir -p /probe-artifacts && for arch in amd64 arm64; do CGO_ENABLED=0 GOOS=linux GOARCH=$arch go build -trimpath -o /probe-artifacts/selfguard-database-probe-linux-$arch .; done
 WORKDIR /intelligence
 COPY services/intelligence/go.mod services/intelligence/*.go ./
 RUN go test ./... && CGO_ENABLED=0 go build -trimpath -o /intelligence-unzip .

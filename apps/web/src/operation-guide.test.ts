@@ -9,4 +9,5 @@ it('explains the independent CVE and KEV workspace without claiming full detecti
 
 it('teaches all three detection layers and deferred Web target enrollment',()=>{for(const t of ['服务器组件、应用与Web分别怎么扫','检测规则库','node_modules','0.4.23','暂时没有Web目标'])expect(guide).toContain(t)});
 
-it('teaches generic rules and native compile limits without a brand workflow',()=>{for(const text of ['通用扫描','原生编译','不支持','固定','正反样本'])expect(guide).toContain(text);expect(guide).not.toContain('常用中间件检测');expect(guide.match(/```mermaid/g)?.length).toBe(5)});
+it('teaches generic rules and native compile limits without a brand workflow',()=>{for(const text of ['通用扫描','原生编译','不支持','固定','正反样本'])expect(guide).toContain(text);expect(guide).not.toContain('常用中间件检测');expect(guide.match(/```mermaid/g)?.length).toBe(6)});
+it('explains database automatic onboarding without automatic restart or invented SQL',()=>{for(const text of ['数据库自动接入','准备重启后接入','重新检查并继续','不自动制造演示查询','其他引擎使用“已有日志文件”','独立审计入库隔离未就绪时不可启用'])expect(guide).toContain(text)});

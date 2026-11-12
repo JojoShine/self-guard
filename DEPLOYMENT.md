@@ -84,3 +84,15 @@ docker compose --env-file .env.prod -f compose.prod.yaml ps
 ## 移除历史WAF（2026-11-11）
 
 当前生产Compose和CI不再创建或依赖WAF服务，不要求WAF_IMAGE/WAF_TOKEN；运行规则发布保持关闭。旧版本导出工具仍可按旧清单取得WAF镜像，用于审计/恢复，不让新版发布重新安装它。仅在新版本健康和入口验收通过后，移除本项目旧WAF容器及已归档的data/waf专用状态；保留可恢复的旧清单/镜像记录。删除旧WAF镜像前核对所有容器引用，只删除未使用的本项目镜像，不执行全机prune，不删除历史平台记录或其他站点Nginx。宿主PG14业务库与原Agent配置不在此次升级范围。
+
+### 数据库自动接入与平台自身审计
+
+数据库实例的“自动接入”提供主机选择、固定 SSH 身份检查、独立采集服务安装、维护等待和真实数据验收。PostgreSQL 原生模式适配宿主机和显式 Docker 容器；已有其他引擎审计文件沿用受支持格式，不会自动安装受许可约束的审计插件。运行指标仍使用已有独立只读连接配置。独立采集服务不修改基础 Agent 的采集根目录、身份或执行器权限。
+
+原生 PostgreSQL 安装会修改该服务的日志配置，使用独立 CSV 目录，关闭绑定参数记录，开启语句完成及错误记录；影响整个 PostgreSQL 服务的全部数据库。日志原文按七天期限清理，专用原始日志目录以256MiB为容量目标清理非活动旧文件，容量提前删除会显示采集缺口；活动文件独自超预算会显示异常，不能宣称完整。源日志按小时或大小轮转，独立清理定时器在停止采集后继续运行。已有 FILE 来源不由平台删除，其原始文件期限应由原系统配置。
+
+`logging_collector=off` 时，平台不会自动重启数据库。“准备重启后接入”只持久设置 `logging_collector=on`，不执行 reload，不开启 SQL 执行日志。维护后重新检查并安装，才配置 SQL 日志。未留日志的历史 SQL 无法补回。
+
+监控平台自身 PostgreSQL 前，部署管理员必须配置独立审计入库连接 `AUDIT_DATABASE_URL`。未配置时普通外部数据库接入仍可用，自身数据库启用会被阻止。该连接必须与 `DATABASE_URL` 使用同一主机、端口、数据库和 schema，用户名固定 `selfguard_sql_ingest`，`sslmode=require&sslaccept=strict`；私有 CA 还应通过 `sslcert` 指向容器内可信 CA 文件，连接池最多2。
+
+专用登录角色应为 NOSUPERUSER、NOCREATEDB、NOCREATEROLE、NOREPLICATION、NOBYPASSRLS，单向继承平台运行角色；平台运行角色不能切换到该入库角色。为专用角色设置 `log_min_duration_statement=-1`、`log_statement=none`、`log_min_duration_sample=-1`、`log_transaction_sample_rate=0`、`log_duration=off`、`log_min_error_statement=panic`。应用启动会实际核对 TLS、角色继承及这些配置，配置无效即拒绝启动，防止审计写入递归产生新 SQL。密码使用部署密钥机制保存，不能写入仓库、命令参数或操作日志；不以可伪造的 application_name 免除采集。
