@@ -20,9 +20,9 @@ export async function loadCoreOverview(request:(path:string)=>Promise<ListResult
  return {assets:assets.total,instances:instances.total,networkRisks:risks.total,networkAlerts:network.total,dataAlerts:data.total,accesses:access.total,recent,updatedAt:new Date().toISOString()};
 }
 const metrics=[['networkRisks','待确认漏洞与配置风险','overviewNetworkRisks'],['networkAlerts','待确认网络告警','overviewNetworkAlerts'],['dataAlerts','待确认数据告警','overviewDataAlerts']] as const;
-export function Dashboard({overview,onOpen,onMetric}:{overview:CoreOverview;onOpen:(record:Finding,resource:string)=>void;onMetric:(group:string,title:string)=>void}){
+export function Dashboard({overview,onOpen,onMetric,demo=false}:{demo?:boolean;overview:CoreOverview;onOpen:(record:Finding,resource:string)=>void;onMetric:(group:string,title:string)=>void}){
  return <div className="dash-root core-dashboard">
-  <SecurityReadiness/>
+  {!demo&&<SecurityReadiness/>}
   <section className="core-entry-section" aria-label="需要关注"><h2>需要关注</h2><div className="dash-metrics core-attention-metrics">{metrics.map(([key,label,group])=><Button key={key} type="text" className="dash-metric dash-metric--neutral" onClick={()=>onMetric(group,label)} aria-label={label+' 进入对应模块'}><span className="dash-metric-copy"><span className="dash-metric-label">{label}</span><strong>{overview[key].toLocaleString('zh-CN')}</strong></span></Button>)}</div></section>
   <section className="dash-card dash-recent" aria-label="待确认安全问题"><header className="dash-card-header"><h2>待确认安全问题</h2></header><Table<Finding> size="small" rowKey="id" dataSource={overview.recent} pagination={false} scroll={{x:640}} locale={{emptyText:<Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无待确认问题；没有待确认记录不代表已完成安全检查，请继续核对采集状态。"/>}} columns={[
    {title:'发现了什么',render:(_,row)=><Button type="link" className="record-title-link" onClick={()=>onOpen(row,'findings')}>{row.title||'未命名记录'}</Button>},

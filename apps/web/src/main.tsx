@@ -297,7 +297,7 @@ function Application() {
       const updated = await api("/" + target + "/" + encodeURIComponent(r.id));
       if (!current()) return;
       setDetail(updated);
-      if (["findings", "incidents", "tasks", "assets"].includes(target)) {
+      if (user?.email!=="demo@selfguard.local" && ["findings", "incidents", "tasks", "assets"].includes(target)) {
         const c = await api(`/${target}/${r.id}/comments`);
         if (current()) setComments(c.items || c);
         const files = await api(`/${target}/${r.id}/attachments`);
@@ -392,7 +392,7 @@ function Application() {
         const data = await api("/operations/" + opsRoutes[page]);
         if (current()) setOps(data);
       } else if (page === "overview" || page === "reports") {
-        const data = await loadCoreOverview(api);
+        const data = await loadCoreOverview(user?.email==="demo@selfguard.local" ? path=>path.startsWith("/database-instances?")||path.startsWith("/access-observations?")?Promise.resolve({items:[],total:0}):api(path) : api);
         if (current()) setOverview(data);
       } else if (supported.includes(resource)) {
         const query = applySecurityPageQuery(page,queryParams(q,sev,status,number,extraFilters,pageSize));
@@ -737,7 +737,7 @@ function Application() {
   ];
   return (
     <Layout className="app-shell" style={{ minHeight: "100dvh" }}>
-      <TopNavigation page={page} onNavigate={navigate}>
+      <TopNavigation page={page} onNavigate={navigate} demo={user?.email==="demo@selfguard.local"}>
           <Space size={16} className="top-actions">
             <Button type="text" className="guide-entry" aria-label="操作指南" icon={<ReadOutlined/>} onClick={()=>{setGuideReturn(location.hash.slice(1)||page);navigate('operation-guide')}}>操作指南</Button>
             <Avatar size={30} className="account-avatar">{user?.name?.slice(0,1)||'用'}</Avatar>
@@ -985,7 +985,7 @@ function Application() {
           ) : page === "reports" ? <ReportPanel /> : page === "overview" ? (
             <Spin spinning={loading}>
               {overview ? (
-                <Dashboard overview={overview} onOpen={r=>void showDetail(r,'findings')} onMetric={group=>navigate(dashboardDestination(group))}/>
+                <Dashboard demo={user?.email==="demo@selfguard.local"} overview={overview} onOpen={r=>void showDetail(r,'findings')} onMetric={group=>navigate(dashboardDestination(group))}/>
               ) : (
                 !loading && <Empty description="尚未取得概览数据，请重试" />
               )}
@@ -1188,7 +1188,7 @@ function Application() {
           >
             {detail && (
               <>
-                {detailResource==='assets'&&<nav className="asset-detail-navigation module-navigation" aria-label="资产详情模块">{[{key:'overview',label:'资产概览'},{key:'resources',label:'资源监控'},{key:'network',label:'服务、端口与流量'},{key:'inventory',label:'软件与运行清单'},{key:'history',label:'变更历史'},{key:'relations',label:'核查备注'},{key:'raw',label:'原始字段'}].map(tab=><button type="button" key={tab.key} aria-current={assetDetailTab===tab.key?'page':undefined} onClick={()=>setAssetDetailTab(tab.key)}>{tab.label}</button>)}</nav>}
+                {detailResource==='assets'&&<nav className="asset-detail-navigation module-navigation" aria-label="资产详情模块">{[{key:'overview',label:'资产概览'},{key:'resources',label:'资源监控'},{key:'network',label:'服务、端口与流量'},{key:'inventory',label:'软件与运行清单'},{key:'history',label:'变更历史'},{key:'relations',label:'核查备注'},{key:'raw',label:'原始字段'}].filter(tab=>user?.email!=="demo@selfguard.local"||tab.key==='overview').map(tab=><button type="button" key={tab.key} aria-current={assetDetailTab===tab.key?'page':undefined} onClick={()=>setAssetDetailTab(tab.key)}>{tab.label}</button>)}</nav>}
                 {detailResource!=='assets'||assetDetailTab==='overview'?<RecordSummary record={detail} resource={detailResource}/>:null}
  <SecurityContext key={"context"+detailResource+detail.id} record={detail} resource={detailResource} onOpen={(record,target)=>void showDetail(record,target)}/>
  <RecordWorkflowEditor onOpenFinding={id=>void showDetail({id},"findings")} simple currentUserEmail={user?.email} key={detailResource+detail.id} record={{...detail,id:detail.id,kind:detail.kind,status:detail.status}} resource={detailResource} canEdit={["ADMIN","ANALYST"].includes(user?.role||"")} onChanged={updated=>{if(renderedDetailVersion!==detailRequestVersion.current)return;setDetail({...detail,...updated});void refresh();}}/>

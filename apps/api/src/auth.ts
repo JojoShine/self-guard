@@ -13,6 +13,7 @@ import {
   HttpCode,
   Inject,
 } from "@nestjs/common";
+import {DEMO_EMAIL,DEMO_SETTING,safeDemoAccount,demoRequestAllowed} from "./public-demo";
 import { Db } from "./db";
 import { checkPassword, hashToken, newToken, equalSecret } from "./security";
 import { parse } from "./validation";
@@ -30,6 +31,12 @@ export class AuthGuard implements CanActivate {
     });
     if (!s || s.expiresAt < new Date() || s.user.disabled)
       throw new UnauthorizedException("会话已失效");
+    // The reserved public identity always fails closed, even if its role is changed.
+    if (s.user.email === DEMO_EMAIL) {
+      const setting = await this.db.setting.findUnique({where:{key:DEMO_SETTING}});
+      if (!safeDemoAccount(setting?.value,s.user) || !demoRequestAllowed(req.method,req.path,process.env.BASE_PATH||""))
+        throw new ForbiddenException("体验账号仅可查看指定演示资产、问题与概览");
+    }
     req.user = {
       id: s.user.id,
       email: s.user.email,
@@ -54,7 +61,19 @@ export function component(req: any, name: string) {
 }
 @Controller("auth")
 export class AuthController {
+  private demoPasswordCheck?:{key:string;valid:boolean};
   constructor(@Inject(Db) private db: Db) {}
+  @Get("demo")
+  async demo() {
+    const setting = await this.db.setting.findUnique({where:{key:DEMO_SETTING}});
+    const user = await this.db.user.findUnique({where:{email:DEMO_EMAIL}});
+    const config = safeDemoAccount(setting?.value,user);
+    if (!config || !user) return {enabled:false};
+    const key=hashToken(user.passwordHash+"\0"+config.password);
+    if(this.demoPasswordCheck?.key!==key)this.demoPasswordCheck={key,valid:checkPassword(config.password,user.passwordHash)};
+    if(!this.demoPasswordCheck.valid)return {enabled:false};
+    return {enabled:true,email:config.email,password:config.password};
+  }
   private async reserveLogin(key: string) {
     return this.db.$transaction(async tx => {
       // Serialize reservations and capacity checks across every API replica.
@@ -98,6 +117,10 @@ export class AuthController {
     });
     if (!u || u.disabled || !checkPassword(v.password, u.passwordHash)) {
       throw new UnauthorizedException("邮箱或密码错误");
+    }
+    if (u.email === DEMO_EMAIL) {
+      const setting = await this.db.setting.findUnique({where:{key:DEMO_SETTING}});
+      if (!safeDemoAccount(setting?.value,u)) throw new ForbiddenException("体验账号当前不可用");
     }
     await this.clearLogin(key);
     const token = newToken();
