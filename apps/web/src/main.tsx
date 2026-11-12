@@ -579,7 +579,7 @@ function Application() {
       />
     </Form.Item>
   );
-  if (!session.token)return <LoginView busy={busy} error={error} onSubmit={async values=>{setBusy(true);setError('');try{const data=await api('/auth/login',values);session.setToken(data.token)}catch(e){setError((e as Error).message)}finally{setBusy(false)}}}/>;
+  if (!session.token)return <LoginView busy={busy} error={error} onSubmit={async values=>{setBusy(true);setError('');try{const data=await api('/auth/login',values);session.setToken(data.token);if(values.email.toLowerCase()==='demo@selfguard.local')navigate('overview')}catch(e){setError((e as Error).message)}finally{setBusy(false)}}}/>;
   if (page==='operation-guide')return <OperationGuide onReturn={()=>navigate(guideReturn)}/>;
   const baseColumns = [
     {
