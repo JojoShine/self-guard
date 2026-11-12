@@ -40,7 +40,7 @@ func TestTrafficMonitorWindowsContinueAfterBudget(t *testing.T) {
 		t.Fatal(w.summary.StopReason)
 	}
 	first := w.roll(start.Add(time.Second), false)
-	if first == nil || first.Complete || first.StopReason != "PACKET_LIMIT" {
+	if first == nil || !first.Complete || first.StopReason != "BUDGET_ROLLOVER" {
 		t.Fatalf("%+v", first)
 	}
 	second := w.roll(start.Add(2*time.Second), false)
@@ -376,5 +376,60 @@ func TestTrafficMonitorRevokedTerminalRejectedExitsWithoutRestart(t *testing.T) 
 	}
 	if requests != 2 || len(q.state.Pending) != 1 || q.first().Status != "STOPPED" {
 		t.Fatalf("terminal not retained without retry loop: requests=%d pending=%+v", requests, q.first())
+	}
+}
+
+func TestTrafficMonitorBudgetRollsBeforeDeadline(t *testing.T) {
+	c := monitorFixture().Capture
+	c.DurationSeconds = 60
+	start := time.Now()
+	w := newTrafficMonitorWindow(c, start)
+	w.consume(trafficFrame(), start.Add(time.Millisecond))
+	first := w.roll(start.Add(2*time.Millisecond), false)
+	if first == nil || first.StopReason != "BUDGET_ROLLOVER" || first.Packets != 1 {
+		t.Fatalf("budget left remainder of minute unobserved: %+v", first)
+	}
+	w.consume(trafficFrame(), start.Add(3*time.Millisecond))
+	second := w.roll(start.Add(4*time.Millisecond), false)
+	if second == nil || second.Packets != 1 {
+		t.Fatalf("next permitted packet lost: %+v", second)
+	}
+}
+
+func TestTrafficMonitorByteBudgetPreservesEveryBoundaryPacket(t *testing.T) {
+	c := monitorFixture().Capture
+	c.DurationSeconds = 60
+	c.MaxPackets = 10000
+	c.MaxBytes = 1048576
+	start := time.Now()
+	w := newTrafficMonitorWindow(c, start)
+	frame := append(trafficFrame(), make([]byte, 1500-len(trafficFrame()))...)
+	total := 0
+	windows := 0
+	for i := 0; i < 20000; i++ {
+		now := start.Add(time.Duration(i) * time.Microsecond)
+		if s := w.roll(now, false); s != nil {
+			if !s.Complete || s.StopReason != "BUDGET_ROLLOVER" || s.CapturedBytes > c.MaxBytes || s.Packets > c.MaxPackets {
+				t.Fatalf("invalid budget window: %+v", s)
+			}
+			total += s.Packets
+			windows++
+		}
+		w.consume(frame, now)
+	}
+	total += w.roll(start.Add(time.Second), true).Packets
+	if total != 20000 || windows != 2 {
+		t.Fatalf("boundary loss: packets=%d windows=%d", total, windows)
+	}
+	w = newTrafficMonitorWindow(c, start)
+	w.summary.StopReason = "BYTE_LIMIT"
+	w.summary.SocketDropped = 3
+	if s := w.roll(start, true); s.Complete || s.SocketDropped != 3 {
+		t.Fatal("kernel loss hidden")
+	}
+	w = newTrafficMonitorWindow(c, start)
+	w.summary.StopReason = "FLOW_LIMIT"
+	if s := w.roll(start, false); s.Complete || s.StopReason != "FLOW_LIMIT" {
+		t.Fatal("flow limit loss hidden")
 	}
 }

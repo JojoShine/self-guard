@@ -200,7 +200,7 @@ func (w *trafficMonitorWindow) consume(b []byte, now time.Time) {
 	}
 }
 func (w *trafficMonitorWindow) roll(now time.Time, stop bool) *TrafficSummary {
-	if !stop && now.Before(w.deadline) {
+	if !stop && now.Before(w.deadline) && w.summary.StopReason == "" {
 		return nil
 	}
 	s := w.summary
@@ -211,7 +211,10 @@ func (w *trafficMonitorWindow) roll(now time.Time, stop bool) *TrafficSummary {
 			s.StopReason = "MONITOR_STOPPED"
 		}
 	}
-	s.Complete = (s.StopReason == "WINDOW_ELAPSED" || s.StopReason == "MONITOR_STOPPED") && s.SocketDropped == 0
+	if s.StopReason == "PACKET_LIMIT" || s.StopReason == "BYTE_LIMIT" {
+		s.StopReason = "BUDGET_ROLLOVER"
+	}
+	s.Complete = (s.StopReason == "BUDGET_ROLLOVER" || s.StopReason == "WINDOW_ELAPSED" || s.StopReason == "MONITOR_STOPPED") && s.SocketDropped == 0
 	*w = *newTrafficMonitorWindow(s.Scope, now)
 	return s
 }

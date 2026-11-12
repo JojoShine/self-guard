@@ -59,7 +59,7 @@ func TestTrafficMonitorActualContinuousWindows(t *testing.T) {
 		t.Fatalf("expected 3 full windows and final flush, got %d", len(windows))
 	}
 	for _, s := range windows[:3] {
-		if s.Packets != 1 || s.StopReason != "PACKET_LIMIT" || s.Complete || s.PayloadFile != "" {
+		if s.Packets != 1 || s.StopReason != "BUDGET_ROLLOVER" || !s.Complete || s.PayloadFile != "" {
 			t.Fatalf("budget stopped monitor or payload recorded: %+v", s)
 		}
 	}

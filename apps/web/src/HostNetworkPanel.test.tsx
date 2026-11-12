@@ -62,3 +62,10 @@ it('explains interval aggregates with directional counts, bytes and honest avera
  const html=renderToStaticMarkup(<TrafficMonitorReport monitor={monitor} windows={windows}/>);
  for(const text of ['连接与流量记录','通信方向数','合计流量','平均速率','每条记录汇总','不是单次请求','1.00 kbps'])expect(html).toContain(text);expect(html).not.toContain('历史监控窗口');
 });
+it('distinguishes continuous budget rollover from historical gaps and real kernel drops',()=>{
+ const window={id:'budget',sequence:1,startedAt:'2026-11-12T00:00:00Z',endedAt:'2026-11-12T00:00:01Z',summary:{packets:8192,socketDropped:0,complete:true,stopReason:'BUDGET_ROLLOVER',flows:[]}};
+ const render=(summary=window.summary)=>renderToStaticMarkup(<TrafficMonitorReport monitor={{...monitor,status:'RUNNING'}} selected={{...window,summary}} windows={{items:[{...window,summary}],total:1,page:1,pageSize:10}}/>);
+ expect(render()).toContain('持续采集已转入下一窗口');expect(render()).not.toContain('此时段的连接证据存在缺口');
+ expect(render({...window.summary,complete:false,socketDropped:3})).toContain('内核丢包 3');
+ expect(render({...window.summary,complete:false,stopReason:'BYTE_LIMIT'})).toContain('达到字节预算');
+});

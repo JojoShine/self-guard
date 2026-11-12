@@ -43,11 +43,14 @@ func captureTrafficMonitor(ctx context.Context, c TrafficCaptureConfig, emit fun
 	if err != nil {
 		return errors.New("capture interface unavailable")
 	}
-	fd, err := syscall.Socket(syscall.AF_PACKET, syscall.SOCK_RAW|syscall.SOCK_CLOEXEC, int(networkShort(3)))
+	fd, err := syscall.Socket(syscall.AF_PACKET, syscall.SOCK_RAW|syscall.SOCK_CLOEXEC, 0)
 	if err != nil {
 		return errors.New("traffic monitor requires authorized CAP_NET_RAW/root")
 	}
 	defer syscall.Close(fd)
+	if err = attachTrafficMonitorFilter(fd, c); err != nil {
+		return err
+	}
 	if err = syscall.Bind(fd, &syscall.SockaddrLinklayer{Protocol: networkShort(3), Ifindex: iface.Index}); err != nil {
 		return err
 	}
@@ -60,7 +63,7 @@ func captureTrafficMonitor(ctx context.Context, c TrafficCaptureConfig, emit fun
 	w := newTrafficMonitorWindow(c, time.Now())
 	b := make([]byte, 65536)
 	flush := func(now time.Time, stop bool) error {
-		if !stop && now.Before(w.deadline) {
+		if !stop && now.Before(w.deadline) && w.summary.StopReason == "" {
 			return nil
 		}
 		drops, e := trafficMonitorSocketDrops(fd)
@@ -84,8 +87,8 @@ func captureTrafficMonitor(ctx context.Context, c TrafficCaptureConfig, emit fun
 		if e != nil {
 			return e
 		}
-		// Keep the one socket open across every aggregation boundary. Budgets stop
-		// aggregation for this window while reads continue to drain the socket.
+		// Settle a full window before consuming this packet into the next one.
+		// The same filtered socket stays open across every boundary.
 		if err = flush(time.Now(), false); err != nil {
 			return err
 		}

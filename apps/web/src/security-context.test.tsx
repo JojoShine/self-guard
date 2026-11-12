@@ -21,3 +21,14 @@ it('uses bound network proof for service findings while raw imported JSON cannot
 });
 
 it('labels Suricata asset links as collection hosts rather than confirmed affected targets',()=>{const html=renderToStaticMarkup(<SecurityContextContent context={base} record={{source:'suricata'}} onOpen={()=>{}}/>);expect(html).toContain('采集主机');expect(html).not.toContain('<h3>受影响对象</h3>');expect(html).toContain('目标归属仍需核对');});
+it('explains inventory-only risk does not require a network relationship and offers scoped investigation',()=>{
+ const context={...base,evidence:{...base.evidence,assets:[{id:'host-one',hostname:'demo-host',ip:'192.0.2.10'}],findings:[{...base.evidence.findings[0],source:'vulnerability',evidence:{proofType:'INVENTORY_VERSION_MATCH',component:{name:'library'}}}]}};
+ const html=renderToStaticMarkup(<SecurityContextContent context={context} record={{source:'vulnerability'}} onOpen={()=>{}}/>);
+ for(const text of ['不适用','版本匹配','不等于流量采集故障','#network-hosts?assetId=host-one','来源与目的 IP','获准请求'])expect(html).toContain(text);
+});
+it('distinguishes missing HTTP connection evidence and points to approved checks without claiming capture failure',()=>{
+ const context={...base,evidence:{...base.evidence,findings:[{...base.evidence.findings[0],source:'active-scan',evidence:{proofType:'ACTIVE_HTTP_CHECK'}}]}};
+ const html=renderToStaticMarkup(<SecurityContextContent context={context} record={{source:'active-scan'}} onOpen={()=>{}}/>);
+ for(const text of ['HTTP 检查','扫描节点','授权入口','#scans?view=active','无法仅凭此处判断采集是否缺失'])expect(html).toContain(text);
+ expect(html).not.toContain('网络关系不适用');
+});
