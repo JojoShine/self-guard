@@ -40,6 +40,7 @@ import {WafRuleLibraryPanel} from './WafRuleLibraryPanel';
 import {AgentInstallationPanel} from './AgentInstallationPanel';
 import {paginationDefaults,readPageSize,pageWithinTotal} from './pagination';
 import {LoginView} from "./LoginView";
+import {DemoWorkspace} from "./DemoWorkspace";
 import {Brand} from "./Brand";
 import {DesignSystemPage} from "./DesignSystemPage";
 import {OperationGuide} from "./OperationGuide";
@@ -580,6 +581,7 @@ function Application() {
     </Form.Item>
   );
   if (!session.token)return <LoginView busy={busy} error={error} onSubmit={async values=>{setBusy(true);setError('');try{const data=await api('/auth/login',values);session.setToken(data.token);if(values.email.toLowerCase()==='demo@selfguard.local')navigate('overview')}catch(e){setError((e as Error).message)}finally{setBusy(false)}}}/>;
+  if (user?.email==='demo@selfguard.local')return <DemoWorkspace key={session.token} onLogout={async()=>{try{await api('/auth/logout',{})}finally{session.setToken('')}}}/>;
   if (page==='operation-guide')return <OperationGuide onReturn={()=>navigate(guideReturn)}/>;
   const baseColumns = [
     {

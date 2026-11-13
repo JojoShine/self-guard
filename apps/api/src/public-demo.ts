@@ -15,6 +15,7 @@ export function demoRequestAllowed(method:string,path:string,deploymentPath:stri
  const prefix=basePath(deploymentPath)+'/api';
  if(!path.startsWith(prefix+'/'))return false;
  const route=path.slice(prefix.length);
+ if(route==='/demo-workspace')return method==='GET'||method==='POST';
  if(method==='POST')return route==='/auth/logout';
  if(method!=='GET')return false;
  return ['/auth/me','/overview','/assets','/findings'].includes(route)||/^\/(?:assets|findings)\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(route);

@@ -35,7 +35,7 @@ export class AuthGuard implements CanActivate {
     if (s.user.email === DEMO_EMAIL) {
       const setting = await this.db.setting.findUnique({where:{key:DEMO_SETTING}});
       if (!safeDemoAccount(setting?.value,s.user) || !demoRequestAllowed(req.method,req.path,process.env.BASE_PATH||""))
-        throw new ForbiddenException("体验账号仅可查看指定演示资产、问题与概览");
+        throw new ForbiddenException("体验账号只能操作独立体验空间及查看指定演示记录");
     }
     req.user = {
       id: s.user.id,

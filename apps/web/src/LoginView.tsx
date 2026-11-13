@@ -7,7 +7,7 @@ type Credentials={email:string;password:string};
 export type DemoAccount={enabled:false}|({enabled:true}&Credentials);
 export function DemoAccountPanel({account,busy,onSelect}:{account:DemoAccount;busy:boolean;onSelect:(values:Credentials)=>void}){
  if(!account.enabled)return null;
- return <section className="module-stack" aria-label="体验账号"><Alert type="info" showIcon message="体验账号 · 只读演示" description="仅查看权限范围内的演示资产、问题与概览。其他菜单不开放，不能修改配置或执行运维操作。"/><div>邮箱：{account.email}<br/>密码：{account.password}</div><Button block disabled={busy} onClick={()=>onSelect({email:account.email,password:account.password})}>填入体验账号</Button><p className="login-account-note">填入后点击登录，使用正常登录流程进入体验。</p></section>;
+ return <section className="module-stack" aria-label="体验账号"><Alert type="info" showIcon message="体验账号 · 可操作体验" description="可添加样例资产、创建并执行样例检查、处理问题和解析合成 SQL。结果保存于本次登录空间，会话独立，8 小时到期重置；不访问真实主机，不执行公网扫描或远程安装。"/><div>邮箱：{account.email}<br/>密码：{account.password}</div><Button block disabled={busy} onClick={()=>onSelect({email:account.email,password:account.password})}>填入体验账号</Button><p className="login-account-note">填入后点击登录，使用正常登录流程进入体验。</p></section>;
 }
 export function LoginView({busy,error,onSubmit}:{busy:boolean;error?:string;onSubmit:(values:{email:string;password:string})=>Promise<void>}){
  const[form]=Form.useForm<Credentials>(),[demo,setDemo]=useState<DemoAccount>({enabled:false}),[demoError,setDemoError]=useState('');
