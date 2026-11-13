@@ -3,6 +3,7 @@ import { map } from 'rxjs/operators';
 import { Injectable, NestInterceptor, ExecutionContext, CallHandler, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { z } from 'zod';
+import {isPublicReadOnlyUser} from './public-demo';
 
 export const dataScopeInput = z.object({
   databaseInstanceIds: z.array(z.string().uuid()).max(1000).default([]),
@@ -15,7 +16,7 @@ export const dataScopeInput = z.object({
   canExportAccessEvidence: z.boolean().default(false),
 }).strict();
 export function restricted(user: any) { return user?.role !== 'ADMIN' && user?.dataScope?.restricted === true; }
-export function evidenceAllowed(user: any) { return user?.role === 'ADMIN' || user?.dataScope?.canReadEvidence !== false; }
+export function evidenceAllowed(user: any) { return isPublicReadOnlyUser(user) || user?.role === 'ADMIN' || user?.dataScope?.canReadEvidence !== false; }
 export function assertEvidence(user: any) { if (!evidenceAllowed(user)) throw new ForbiddenException('没有读取证据的权限'); }
 export function assertGlobal(user: any) { if (restricted(user)) throw new ForbiddenException('此操作需要完整数据范围'); }
 export function assetScope(user: any): any {
@@ -62,7 +63,31 @@ export async function assertLinks(db: any, user: any, body: any) {
     for (const id of body[key] || []) await assertScope(db,user,resource,id);
 }
 const sensitive = new Set(['inspection','evidence','description','conclusion','verification','remainingRisks','reason','parameters','result','inventory','detail','body','data','config','path','remoteIp','message','fields','payload','headers']);
+const publicPrivateFields=new Set(['inspection','evidence','description','conclusion','verification','remainingrisks','reason','parameters','result','detail','details','body','payload','banner','bannerpreview','headers','request','response','raw','sql','statement','statements','query','querytext','command','commands','commandline','cmdline','cmd','argv','args','env','environment','environmentvariables','script','stdout','stderr','files','before','after','diff','changes','stack','lasterror','message','actiondetail','connectionstring','databaseurl','dsn','cookie','setcookie','authorization','value','expectedvalue','expected','matchvalue','pattern','content','contents','sourcetext','rawtext','downloadurl','artifacturl','trustroot']);
+const publicAuditFields=new Set(['succeeded','rows','tls','sessionId','objects','columns','execution','sourceHost','application','permissionGranted','userKnown','returnCode','authentication','objectType','durationMs']);
+function publicMetadata(value:unknown):unknown{
+ if(value===null||value===undefined||value instanceof Date)return value;
+ if(typeof value==='string'){
+  // Even a harmless metadata field may contain an accidentally embedded credential.
+  if(/-----BEGIN [^-]*(?:PRIVATE KEY|CERTIFICATE)-----|\b(?:Bearer|Basic)\s+\S+|(?:password|passwd|token|secret|api[_-]?key)\s*[=:]|[a-z][a-z0-9+.-]*:\/\/[^\s/]*@/i.test(value))return '[已隐藏]';
+  if(/^(?:https?:\/\/|\/)/i.test(value))return value.split(/[?#]/,1)[0];
+  return value;
+ }
+ if(Array.isArray(value))return value.map(publicMetadata);
+ if(typeof value!=='object')return value;
+ return Object.fromEntries(Object.entries(value).flatMap(([key,entry])=>{
+  const normalized=key.replace(/[^a-z0-9]/gi,'').toLowerCase();
+  if(/^can[A-Z_]/.test(key))return [[key,false]];
+  if(normalized==='value'&&(typeof entry==='number'||typeof entry==='boolean'))return [[key,entry]];
+  if(normalized==='result'&&typeof entry==='string'&&['SUCCESS','FAILURE','UNKNOWN'].includes(entry))return [[key,entry]];
+  if(normalized==='details')return [[key,publicMetadata(entry&&typeof entry==='object'&&!Array.isArray(entry)?Object.fromEntries(Object.entries(entry).filter(([field])=>publicAuditFields.has(field))):{})]];
+  if(typeof entry==='boolean'&&/(?:configured|status|valid|issued|enabled)$/.test(normalized))return [[key,entry]];
+  if(publicPrivateFields.has(normalized)||/password|passwd|secret|token|credential|privatekey|publickey|hostkey|apikey|encryptionkey|signingkey|ciphertext|hash|sha256|sqltext|sqlstatement|statementtext|rawsql|requestbody|responsebody|requestbase64|responsebase64|bodybase64|rawrequest|rawresponse|headers|authorization|cookie/.test(normalized))return [];
+  return [[key,publicMetadata(entry)]];
+ }));
+}
 export function redactEvidence(user: any, value: any): any {
+  if(isPublicReadOnlyUser(user))return publicMetadata(value);
   if ((evidenceAllowed(user) && !restricted(user)) || value == null || typeof value !== 'object' || value instanceof Date) return value;
   if (Array.isArray(value)) return value.map(v=>redactEvidence(user,v));
   const ruleRecord = ['BASELINE','LOG','FIM','VULNERABILITY'].includes(value.kind) && value.config && typeof value.config === 'object';

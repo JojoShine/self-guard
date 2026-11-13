@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Alert, App, Button, Descriptions, Form, InputNumber, Switch, Typography, Skeleton } from 'antd';
 import { api } from './api';
+import {canViewConfiguration} from './public-read-only';
 import { ModuleSection, ModuleToolbar } from './ModuleSection';
 import { formatTime } from './presentation';
 
@@ -11,13 +12,15 @@ export function StoragePanel() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [admin, setAdmin] = useState(false);
+  const [canView,setCanView] = useState(false);
   const [form] = Form.useForm();
   async function load() {
     setLoading(true); setError('');
     try {
       const me = await api('/auth/me');
       setAdmin(me.role === 'ADMIN');
-      if (me.role !== 'ADMIN') return;
+      setCanView(canViewConfiguration(me));
+      if (!canViewConfiguration(me)) return;
       const value = await api('/storage');
       setData(value); form.setFieldsValue(value.policy);
     } catch (e) { setError((e as Error).message); }
@@ -25,10 +28,10 @@ export function StoragePanel() {
   }
   useEffect(() => { void load(); }, []);
   if (loading && !data) return <ModuleSection title="存储使用情况"><Skeleton active title={false} paragraph={{rows:4}}/></ModuleSection>;
-  if (!admin && !error) return null;
+  if (!canView && !error) return null;
   return <div className="module-stack">
     {error && <Alert type="error" showIcon message={error} action={<Button onClick={() => void load()}>重新加载</Button>} />}
-    {admin && <>
+    {canView && <>
       <ModuleSection title="存储使用情况" description="日志类记录的当前规模与最近自动清理时间。" extra={<Button loading={loading} disabled={busy} onClick={() => void load()}>刷新存储状态</Button>}>
         {data && <Descriptions bordered column={{ xs: 1, sm: 1, md: 2, xl: 3 }} size="small" items={[
           { key: 'db', label: '数据库大小', children: (data.databaseBytes / 1048576).toFixed(1) + ' MiB' },
@@ -44,7 +47,7 @@ export function StoragePanel() {
       </ModuleSection>
       <ModuleSection title="存储上限与自动清理" description="达到日志记录上限后拒收新增记录，组件保留未确认队列直到恢复。">
         <Alert showIcon type="warning" message="自动清理默认关闭；开启后每小时按已保存的保留策略清理，无法在平台内撤销。不会删除未到期记录来腾出空间。" style={{ marginBottom: 20 }} />
-        <Form form={form} layout="vertical" className="module-form-grid" disabled={busy || !data} onFinish={async v => {
+        <Form form={form} layout="vertical" className="module-form-grid" disabled={busy || !data || !admin} onFinish={async v => {
           setBusy(true); setError('');
           try { await api('/storage', v, 'PATCH'); message.success('存储策略已保存'); await load(); }
           catch (e) { setError((e as Error).message); }

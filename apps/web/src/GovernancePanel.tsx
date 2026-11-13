@@ -5,6 +5,7 @@ import {
   Modal, Select, Space, Switch, Table, Typography, Skeleton,
 } from "antd";
 import { api } from "./api";
+import {canViewConfiguration,isPublicReadOnly} from "./public-read-only";
 import { ModuleSection, ModuleToolbar, StatusTag } from "./ModuleSection";
 import { formatTime } from "./presentation";
 
@@ -41,6 +42,8 @@ export function GovernancePanel({ section,onOpenFinding,simpleNotifications=fals
   const [pageSize,setPageSize] = useState(paginationDefaults.defaultPageSize);
   const request = useRef(0);
   const admin = user?.role === "ADMIN";
+  const publicReadOnly = isPublicReadOnly(user);
+  const canViewSettings = canViewConfiguration(user);
   const canImport = ["ADMIN", "ANALYST"].includes(user?.role);
   async function load(targetPage = page,size=pageSize) {
     const current = ++request.current;
@@ -55,7 +58,7 @@ export function GovernancePanel({ section,onOpenFinding,simpleNotifications=fals
         if (current !== request.current) return;
         setData(result); form.setFieldsValue(result);
       } else if (section === "retention") {
-        if (currentUser.role !== "ADMIN") { setData({}); return; }
+        if (!canViewConfiguration(currentUser)) { setData({}); return; }
         const result = await api("/governance/retention");
         if (current !== request.current) return;
         setData(result); form.setFieldsValue(result);
@@ -69,7 +72,7 @@ export function GovernancePanel({ section,onOpenFinding,simpleNotifications=fals
         if(validPage!==targetPage){await load(validPage,size);return;}
         settingsForm.setFieldsValue(settings); setData(notifications);setPage(targetPage);setPageSize(size);
       } else if (section === "imports") {
-        if (!["ADMIN", "ANALYST"].includes(currentUser.role)) { setData({}); return; }
+        if (!["ADMIN", "ANALYST"].includes(currentUser.role)&&!isPublicReadOnly(currentUser)) { setData({}); return; }
         const result = await api("/governance/imports");
         if (current === request.current) setData(result);
       }
@@ -113,13 +116,13 @@ export function GovernancePanel({ section,onOpenFinding,simpleNotifications=fals
         <Form.Item className="module-field-wide"><Button type="primary" htmlType="submit" loading={busy}>保存审批策略</Button></Form.Item>
       </Form>
     </ModuleSection>}
-    {section === "retention" && (admin ? <ModuleSection title="数据保留与清理" extra={<Button loading={loading} disabled={busy} onClick={() => void load()}>刷新设置</Button>} description="先保存保留设置，再预览到期范围并确认清理。">
+    {section === "retention" && (canViewSettings ? <ModuleSection title="数据保留与清理" extra={<Button loading={loading} disabled={busy} onClick={() => void load()}>刷新设置</Button>} description="先保存保留设置，再预览到期范围并确认清理。">
       <Paragraph>配置保留天数后，可预览到期记录，再确认清理。审计至少保留 30 天；清理不包含资产、问题、事件和修复任务。</Paragraph>
-      <Form form={form} layout="vertical" className="module-form-grid" disabled={busy} onFinish={v => void save("retention", v)}>
+      <Form form={form} layout="vertical" className="module-form-grid" disabled={busy||!admin} onFinish={v => void save("retention", v)}>
         {Object.entries(retentionLabels).map(([key, label]) => <Form.Item key={key} name={key} label={`${label}（天）`} rules={[{ required: true }]} extra="保留超过设定天数的对应记录进入到期范围；审计至少保留30天，清理前先预览。"><InputNumber min={key === "auditDays" ? 30 : 1} max={3650} precision={0} /></Form.Item>)}
         <Form.Item className="module-field-wide"><Button type="primary" htmlType="submit" loading={busy}>保存保留设置</Button></Form.Item>
       </Form>
-      <ModuleToolbar><Button loading={busy} onClick={() => void action(async () => setPreview(await api("/governance/retention/preview", {})))}>预览到期记录</Button>{preview && <Button danger disabled={busy} onClick={() => setPurgeOpen(true)}>清理到期记录</Button>}</ModuleToolbar>
+      <ModuleToolbar><Button disabled={!admin} loading={busy} onClick={() => void action(async () => setPreview(await api("/governance/retention/preview", {})))}>预览到期记录</Button>{preview && <Button danger disabled={busy} onClick={() => setPurgeOpen(true)}>清理到期记录</Button>}</ModuleToolbar>
       {preview && <Descriptions bordered column={{ xs: 1, sm: 1, md: 2 }} size="small" title="到期记录预览" style={{ marginTop: 20 }}>
         {Object.entries(preview.counts).map(([key, count]) => <Descriptions.Item key={key} label={categoryLabels[key] || key}>{String(count)} 条 · 创建于 {date(preview.cutoffs[key])} 之前</Descriptions.Item>)}
       </Descriptions>}
@@ -135,7 +138,7 @@ export function GovernancePanel({ section,onOpenFinding,simpleNotifications=fals
     </ModuleSection> : <Alert type="info" message="保留设置与清理功能仅管理员可用。" showIcon />)}
     {section === "notifications" && <>
       <ModuleSection title="通知订阅" description="选择需要接收的站内提醒。">
-      <Form form={settingsForm} layout="vertical" className="module-form-grid" disabled={busy} onFinish={v => void save("notification-settings", v)}>
+      <Form form={settingsForm} layout="vertical" className="module-form-grid" disabled={busy||publicReadOnly} onFinish={v => void save("notification-settings", v)}>
         <Form.Item name="enabled" valuePropName="checked" extra="控制是否生成你的站内提醒，停用不改变实际风险和任务状态。"><Checkbox>启用站内通知</Checkbox></Form.Item>
         {!simpleNotifications&&<Form.Item name="approvals" valuePropName="checked" extra="当当前权限允许审批的任务进入待审批时提醒，仍需逐项核对审批依据。"><Checkbox>我可审批的任务</Checkbox></Form.Item>}
         {!simpleNotifications&&<Form.Item name="taskFailures" valuePropName="checked" extra="只提醒你提交任务的失败情况；请进入任务核对执行与验证结果。"><Checkbox>我提交的任务失败</Checkbox></Form.Item>}
@@ -146,18 +149,18 @@ export function GovernancePanel({ section,onOpenFinding,simpleNotifications=fals
       </Form>
       </ModuleSection>
       <ModuleSection title="站内通知" extra={<Button loading={loading} disabled={busy} onClick={() => void load()}>刷新通知</Button>}>
-      <ModuleToolbar><Text>未读 {data.unread || 0} 条</Text><Button loading={busy} onClick={() => void action(async () => { const result = await api("/governance/notifications/sync", {}); message.success(`新增 ${result.created} 条通知`); setPage(1); await load(1); })}>同步站内待办</Button></ModuleToolbar>
+      <ModuleToolbar><Text>未读 {data.unread || 0} 条</Text><Button disabled={publicReadOnly} loading={busy} onClick={() => void action(async () => { const result = await api("/governance/notifications/sync", {}); message.success(`新增 ${result.created} 条通知`); setPage(1); await load(1); })}>同步站内待办</Button></ModuleToolbar>
       <Paragraph className="module-note" type="secondary">按已保存的订阅和当前授权范围生成站内通知。列表保留生成时的记录，当前状态请进入对应问题查看。</Paragraph>
       <Table<any> rowKey="id" loading={loading} dataSource={data.items || []} size="small" scroll={{ x: 760 }} locale={{ emptyText: "暂无站内通知" }} pagination={{...paginationDefaults,current:page,total:data.total||0,pageSize,disabled:loading,onChange:(next,size)=>{const target=size===pageSize?next:1;void load(target,size);}}} columns={[
         { title: "通知", dataIndex: "title" },
         { title: "状态", dataIndex: "readAt", render: v => <StatusTag value={v?"READ":"UNREAD"}/> },
         { title: "时间", dataIndex: "createdAt", render: date },
-        { title: "操作", render: (_, row) => <Space><Button size="small" onClick={() => { if(row.resource==='findings'&&row.resourceId&&onOpenFinding){onOpenFinding(row.resourceId);return} location.hash = row.resource === "tasks" ? "tasks" : "findings"; }}>查看{row.resource === "tasks" ? "任务" : "问题"}</Button>{!row.readAt && <Button size="small" disabled={busy} onClick={() => void action(async () => { await api(`/governance/notifications/${row.id}/read`, {}, "PATCH"); await load(); })}>标为已读</Button>}</Space> },
+        { title: "操作", render: (_, row) => <Space><Button size="small" onClick={() => { if(row.resource==='findings'&&row.resourceId&&onOpenFinding){onOpenFinding(row.resourceId);return} location.hash = row.resource === "tasks" ? "tasks" : "findings"; }}>查看{row.resource === "tasks" ? "任务" : "问题"}</Button>{!row.readAt && <Button size="small" disabled={busy||publicReadOnly} onClick={() => void action(async () => { await api(`/governance/notifications/${row.id}/read`, {}, "PATCH"); await load(); })}>标为已读</Button>}</Space> },
       ]} />
       </ModuleSection>
     </>}
-    {section === "imports" && (canImport ? <ModuleSection title="外部结果导入" description="批量导入风险与告警结果，并跟踪处理状态。">
-      <ModuleToolbar><Button type="primary" disabled={busy} onClick={() => openImport()}>导入外部结果</Button><Button loading={loading} disabled={busy} onClick={() => void load()}>刷新批次</Button></ModuleToolbar>
+    {section === "imports" && (canImport||publicReadOnly ? <ModuleSection title="外部结果导入" description="批量导入风险与告警结果，并跟踪处理状态。">
+      <ModuleToolbar><Button type="primary" disabled={busy||!canImport} onClick={() => openImport()}>导入外部结果</Button><Button loading={loading} disabled={busy} onClick={() => void load()}>刷新批次</Button></ModuleToolbar>
       <Paragraph className="module-note">支持风险和告警结果。单批最多 100 条；按来源、外部编号、资产及类型去重。失败批次可修正后重试，整批成功后才写入结果。</Paragraph>
       <Table<any> pagination={paginationDefaults} rowKey="id" loading={loading} size="small" dataSource={data.items || []} scroll={{ x: 850 }} locale={{ emptyText: "暂无导入批次" }} columns={[
         { title: "批次", dataIndex: "id", ellipsis: true },
@@ -165,7 +168,7 @@ export function GovernancePanel({ section,onOpenFinding,simpleNotifications=fals
         { title: "状态", dataIndex: "status", render: s => <StatusTag value={s} labels={statusLabels} /> },
         { title: "结果", render: (_, row) => row.error || (row.result ? `${row.result.total} 条完成` : "等待结果") },
         { title: "创建时间", dataIndex: "createdAt", render: date },
-        { title: "操作", render: (_, row) => row.status === "FAILED" ? <Button size="small" disabled={busy} onClick={() => openImport(row)}>修正并重试</Button> : "—" },
+        { title: "操作", render: (_, row) => row.status === "FAILED" ? <Button size="small" disabled={busy||!canImport} onClick={() => openImport(row)}>修正并重试</Button> : "—" },
       ]} />
       <Text className="module-note" type="secondary">显示最近 100 个可见批次。管理员可查看全部，分析员可查看自己提交的批次。</Text>
       <Modal className="module-modal" width="min(760px, calc(100vw - 32px))" title={retryBatch ? "修正并重试导入" : "导入外部结果"} open={importOpen} closable={!busy} maskClosable={!busy} cancelButtonProps={{disabled:busy}} onCancel={() => !busy && setImportOpen(false)} cancelText="取消" confirmLoading={busy} okText={retryBatch ? "重试导入" : "开始导入"} onOk={() => void action(async () => {

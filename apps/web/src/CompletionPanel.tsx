@@ -34,7 +34,7 @@ export function ScopeEditor({record,onChanged}:{record:any;onChanged:()=>void}){
  </Form><ModuleToolbar><Button type="primary" loading={busy} onClick={()=>void save()}>保存权限</Button><Button disabled={busy} onClick={()=>setOpen(false)}>取消编辑</Button></ModuleToolbar></section>}</>;
 }
 
-function LegacyCompletionPanel({ section }: { section: string }) {
+function LegacyCompletionPanel({ section,readOnly=false }: { section: string;readOnly?:boolean }) {
   const { message } = App.useApp();
   const [items, setItems] = useState<any[]>([]), [info, setInfo] = useState<any>(), [error, setError] = useState(''), [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(true), [busy, setBusy] = useState(false);
@@ -85,7 +85,7 @@ function LegacyCompletionPanel({ section }: { section: string }) {
     {error && <Alert type="error" showIcon message={error} action={<Button disabled={busy} onClick={() => void refresh()}>重新加载</Button>} />}
     <ModuleSection title={title} description={section === 'deliveries' ? '跟踪自己的外部通知投递与重试状态。' : section === 'webhook' ? '通过 HTTPS 接收自己的通知，接收端按稳定投递编号去重。' : section === 'backup' ? '配置自动备份频率与保留数量，定期演练恢复。' : '先验证金丝雀主机，再按批次推进签名升级。'} extra={<ModuleToolbar>
       <Button loading={loading} disabled={busy} onClick={() => void refresh()}>刷新{section === 'deliveries' ? '记录' : '状态'}</Button>
-      {section !== 'deliveries' && <Button type="primary" disabled={loading || busy || (!!error && !info)} onClick={async() => { setError('');setBusy(true);try{if(section==='rollouts')setAssetChoices((await managementOptions()).assets);f.resetFields(); f.setFieldsValue(section === 'backup' ? info?.policy : { enabled: info?.enabled, batchSize: 1,targetIds:[] }); setOpen(true)}catch(e){setError((e as Error).message)}finally{setBusy(false)} }}>{section === 'rollouts' ? '创建签名升级计划' : '编辑配置'}</Button>}
+      {!readOnly&&section !== 'deliveries' && <Button type="primary" disabled={loading || busy || (!!error && !info)} onClick={async() => { setError('');setBusy(true);try{if(section==='rollouts')setAssetChoices((await managementOptions()).assets);f.resetFields(); f.setFieldsValue(section === 'backup' ? info?.policy : { enabled: info?.enabled, batchSize: 1,targetIds:[] }); setOpen(true)}catch(e){setError((e as Error).message)}finally{setBusy(false)} }}>{section === 'rollouts' ? '创建签名升级计划' : '编辑配置'}</Button>}
     </ModuleToolbar>}>
       {section === 'rollouts' && <>
         <Alert type="warning" showIcon message="升级需要部署者预置可信签名公钥与允许来源；先发布一台金丝雀，新版本心跳验证通过后再推进。" style={{ marginBottom: 20 }} />
@@ -95,9 +95,9 @@ function LegacyCompletionPanel({ section }: { section: string }) {
           { title: '批次大小', dataIndex: 'batchSize' },
           { title: '目标进度', render: (_, r) => <Space wrap>{r.targets?.length ? r.targets.map((t: any) => <StatusTag key={t.id || t.assetId} value={t.status} labels={targetLabels} />) : '暂无目标'}</Space> },
           { title: '操作', render: (_, r) => <Space wrap>
-            {['DRAFT', 'PAUSED'].includes(r.status) && <Button disabled={busy} onClick={() => Modal.confirm({className:'module-modal', title: '批准签名升级', content: '将按计划变更选中主机的 Agent。请确认签名、目标和恢复方案。', okText: '批准升级', cancelText: '取消', onOk: () => action(() => api('/rollouts/' + r.id + '/approve', { targetIds: r.targetIds })) })}>批准 / 继续</Button>}
-            {r.status === 'RUNNING' && <Button loading={busy} onClick={() => void action(() => api('/rollouts/' + r.id + '/pause', {})).catch(() => {})}>暂停</Button>}
-            <Button danger disabled={busy} onClick={() => Modal.confirm({className:'module-modal', title: '取消尚未执行的发布目标', okText: '确认取消', cancelText: '返回', okButtonProps: { danger: true }, onOk: () => action(() => api('/rollouts/' + r.id + '/cancel', {})) })}>取消</Button>
+            {!readOnly&&['DRAFT', 'PAUSED'].includes(r.status) && <Button disabled={busy} onClick={() => Modal.confirm({className:'module-modal', title: '批准签名升级', content: '将按计划变更选中主机的 Agent。请确认签名、目标和恢复方案。', okText: '批准升级', cancelText: '取消', onOk: () => action(() => api('/rollouts/' + r.id + '/approve', { targetIds: r.targetIds })) })}>批准 / 继续</Button>}
+            {!readOnly&&r.status === 'RUNNING' && <Button loading={busy} onClick={() => void action(() => api('/rollouts/' + r.id + '/pause', {})).catch(() => {})}>暂停</Button>}
+            <Button danger disabled={busy||readOnly} onClick={() => Modal.confirm({className:'module-modal', title: '取消尚未执行的发布目标', okText: '确认取消', cancelText: '返回', okButtonProps: { danger: true }, onOk: () => action(() => api('/rollouts/' + r.id + '/cancel', {})) })}>取消</Button>
           </Space> },
         ]} expandable={{ expandedRowRender: r => <TechnicalDetails value={r} /> }} />
       </>}
@@ -106,7 +106,7 @@ function LegacyCompletionPanel({ section }: { section: string }) {
         { title: '尝试次数', dataIndex: 'attempts' },
         { title: '最近错误', dataIndex: 'lastError', render: v => v || '—' },
         { title: '重试时间', dataIndex: 'availableAt', render: formatTime },
-        { title: '操作', render: (_, r) => r.status === 'FAILED' ? <Button loading={busy} onClick={() => void action(() => api('/maintenance/deliveries/retry', { id: r.id })).catch(() => {})}>重试自己的投递</Button> : '—' },
+        { title: '操作', render: (_, r) => r.status === 'FAILED'&&!readOnly ? <Button loading={busy} onClick={() => void action(() => api('/maintenance/deliveries/retry', { id: r.id })).catch(() => {})}>重试自己的投递</Button> : '—' },
       ]} />}
       {!['rollouts', 'deliveries'].includes(section) && <Spin spinning={loading}>{info ? <>
         <Descriptions bordered size="small" column={{ xs: 1, sm: 1, md: 2 }} items={section === 'webhook' ? [
@@ -179,4 +179,4 @@ export function ExecutorKeyEditor({ record, onChanged,initialOpen=false,onClose,
   </>;
 }
 
-export function CompletionPanel({section,onOpenFinding}:{section:string;onOpenFinding?:(id:string)=>void}){const[tab,setTab]=useState('rollouts'),[revision,setRevision]=useState(0);if(section==='webhook')return <Tabs items={[{key:'inapp',label:'站内提醒',children:<GovernancePanel simpleNotifications section="notifications" onOpenFinding={onOpenFinding}/>},{key:'webhook',label:'外部通知渠道',children:<LegacyCompletionPanel section="webhook"/>}]}/>;return section==='rollouts'?<Tabs activeKey={tab} onChange={setTab} items={[{key:'versions',label:'发行版本',children:<AgentInstallationPanel releasesOnly onViewRollouts={()=>{setTab('rollouts');setRevision(value=>value+1);}}/>},{key:'rollouts',label:'灰度升级计划',children:<LegacyCompletionPanel key={revision} section={section}/>} ]}/>:<LegacyCompletionPanel section={section}/>;}
+export function CompletionPanel({section,onOpenFinding,readOnly=false}:{section:string;onOpenFinding?:(id:string)=>void;readOnly?:boolean}){const[tab,setTab]=useState('rollouts'),[revision,setRevision]=useState(0);if(section==='webhook')return <Tabs items={[{key:'inapp',label:'站内提醒',children:<GovernancePanel simpleNotifications section="notifications" onOpenFinding={onOpenFinding}/>},{key:'webhook',label:'外部通知渠道',children:<LegacyCompletionPanel readOnly={readOnly} section="webhook"/>}]}/>;return section==='rollouts'?<Tabs activeKey={tab} onChange={setTab} items={[{key:'versions',label:'发行版本',children:<AgentInstallationPanel releasesOnly onViewRollouts={()=>{setTab('rollouts');setRevision(value=>value+1);}}/>},{key:'rollouts',label:'灰度升级计划',children:<LegacyCompletionPanel readOnly={readOnly} key={revision} section={section}/>} ]}/>:<LegacyCompletionPanel readOnly={readOnly} section={section}/>;}

@@ -17,3 +17,19 @@ test('allows only narrow read-only routes with exact deployment prefix',()=>{
  for(const [method,path] of [['POST','/api/assets'],['GET','/api/assets/export'],['GET','/api/findings/'+id+'/evidence'],['GET','/api/settings'],['GET','/api/assets/'+id+'/'],['GET','/evil/api/assets'],['DELETE','/api/auth/logout']])assert.equal(demoRequestAllowed(method,path,''),false,path);
  assert.equal(demoRequestAllowed('GET','/api/assets','/self-guard'),false);
 });
+const fullSetting={...setting,accessMode:'FULL_READ_ONLY',assetIds:[]};
+const fullUser={...user,dataScope:{...scope,restricted:false,assetIds:[],databaseInstanceIds:[]}};
+test('global read-only profile requires an enabled VIEWER and explicit empty unrestricted scope without evidence grants',()=>{
+ assert.equal(safeDemoAccount(fullSetting,fullUser)?.accessMode,'FULL_READ_ONLY');
+ for(const bad of [{...fullUser,role:'ADMIN'},{...fullUser,disabled:true},{...fullUser,email:'normal@example.test'},{...fullUser,dataScope:{...fullUser.dataScope,restricted:true}},{...fullUser,dataScope:{...fullUser.dataScope,databaseInstanceIds:undefined}},...['businesses','assetIds','databaseInstanceIds'].map(key=>({...fullUser,dataScope:{...fullUser.dataScope,[key]:[id]}})),...['canReadEvidence','canReadSqlEvidence','canReadAccessEvidence','canExportAccessEvidence'].map(key=>({...fullUser,dataScope:{...fullUser.dataScope,[key]:true}}))])assert.equal(safeDemoAccount(fullSetting,bad),null);
+ assert.equal(safeDemoAccount({...fullSetting,assetIds:[id]},fullUser),null);
+ assert.equal(safeDemoAccount(setting,fullUser),null);
+});
+test('global profile permits only enumerated metadata GETs and logout across the normal platform',()=>{
+ for(const route of ['/agent-platform','/probe-deployments','/vulnerability-workspace','/vulnerability-workspace/lookup'])assert.equal(demoRequestAllowed('GET','/api'+route,'','FULL_READ_ONLY'),true,route);
+ for(const route of ['/auth/me','/assets','/assets/'+id,'/assets/'+id+'/resource-monitor','/database-instances','/database-instances/'+id+'/runtime-monitor','/rules','/probe-rule-library','/probe-templates','/scan-plans','/active-scan-plans','/storage','/users','/audit','/governance/retention','/data-security/events/'+id,'/access-observations/'+id])assert.equal(demoRequestAllowed('GET','/self-guard/api'+route,'/self-guard','FULL_READ_ONLY'),true,route);
+ for(const method of ['POST','PUT','PATCH','DELETE','HEAD','OPTIONS'])for(const route of ['/assets','/demo-workspace','/scan-plans/'+id+'/run','/auth/me'])assert.equal(demoRequestAllowed(method,'/api'+route,'','FULL_READ_ONLY'),false,method+route);
+ assert.equal(demoRequestAllowed('POST','/api/auth/logout','','FULL_READ_ONLY'),true);
+ for(const route of ['/demo-workspace','/operations/credentials','/agent/policy','/waf/config','/access-probe/configuration','/sensor-ingest/'+id+'/config','/data-security/events/'+id+'/sql','/access-observations/'+id+'/sql','/access-observations/'+id+'/chunks/'+id,'/agent-releases/'+id+'/download','/workflows/export','/reports/summary','/reports/detailed','/assets/'+id+'/attachments/'+id,'/vulnerability-feeds/'+id+'/snapshots/'+id+'/artifact','/active-scan-plans/checks/'+id,'/assets/'+id+'/','/assets/../users'])assert.equal(demoRequestAllowed('GET','/api'+route,'','FULL_READ_ONLY'),false,route);
+ assert.equal(demoRequestAllowed('GET','/api/assets','/self-guard','FULL_READ_ONLY'),false);
+});

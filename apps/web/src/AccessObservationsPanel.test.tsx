@@ -15,7 +15,7 @@ describe('effective access evidence',()=>{
   const html=renderToStaticMarkup(<AccessObservationDetails value={{id:'id',sourceId:'source',eventId:'event',startedAt:new Date().toISOString(),endedAt:new Date().toISOString(),operation:'GET',route:'/orders',sessionId:'session',result:'SUCCESS',completeness:'PARTIAL',requestBytes:8,responseBytes:16,source:{name:'HTTP',protocol:'HTTP',assetId:'host',address:'127.0.0.1',port:80},metadata:{gaps:['BODY_NOT_CAPTURED']},classification:{status:'UNCLASSIFIED',definitions:[]},chunks:[{id:'chunk',direction:'RESPONSE',sequence:0,bytes:16,sha256:'a'.repeat(64),capturedAt:new Date().toISOString(),expiresAt:new Date().toISOString(),available:true}],findingIds:[],canReadRaw:false,canExportRaw:false}} onRefresh={()=>{}}/>);
   expect(html).toContain('原始证据读取需要独立权限');expect(html).toContain('正文未采集');expect(html).not.toContain('<textarea');expect(html).not.toContain('data:application');
  });
- it('only offers a whole-message download when all ordered parts are present and live',()=>{const part={id:'one',direction:'RESPONSE',sequence:0,bytes:4,sha256:'a'.repeat(64),capturedAt:new Date().toISOString(),expiresAt:new Date(Date.now()+60000).toISOString(),available:true};expect(exportableEvidenceParts([part],4,'RESPONSE')).toHaveLength(1);for(const invalid of [[{...part,sequence:1}],[{...part,available:false}],[{...part,bytes:3}],[]])expect(exportableEvidenceParts(invalid,4,'RESPONSE')).toHaveLength(0);});
+ it('only offers a whole-message download when all ordered parts are present and live',()=>{const part={id:'one',direction:'RESPONSE',sequence:0,bytes:4,capturedAt:new Date().toISOString(),expiresAt:new Date(Date.now()+60000).toISOString(),available:true};expect(exportableEvidenceParts([part],4,'RESPONSE')).toHaveLength(1);for(const invalid of [[{...part,sequence:1}],[{...part,available:false}],[{...part,bytes:3}],[]])expect(exportableEvidenceParts(invalid,4,'RESPONSE')).toHaveLength(0);});
  it('renders binary and long evidence with explicit display limits',()=>{expect(evidencePreview('AP8B').mode).toBe('HEX');expect(evidencePreview(btoa('hello')).text).toBe('hello');const result=evidencePreview(btoa('a'.repeat(70000)));expect(result.truncated).toBe(true);expect(result.text.length).toBeLessThan(70000);});
 });
 
@@ -25,4 +25,12 @@ it('keeps an embedded instance when clearing or replacing URL filters',()=>{
  expect(pinnedAccessFilters({instanceId:'other'})).toEqual({instanceId:'other'});
  vi.stubGlobal('location',{hash:'#data-access?instanceId=other&recordId=foreign'});
  try{const html=renderToStaticMarkup(<AccessObservationsPanel instanceId="fixed"/>);expect(html).toContain('fixed');expect(html).not.toContain('foreign');expect(html).toContain('不能关闭数据库TLS');expect(html).toContain('配置采集覆盖与探针')}finally{vi.unstubAllGlobals()}
+});
+
+it('renders public metadata without exposing raw reads or crashing on hidden chunk hashes',()=>{
+ const value={id:'id',sourceId:'source',eventId:'event',sessionId:'session',startedAt:new Date().toISOString(),endedAt:new Date().toISOString(),operation:'GET',result:'SUCCESS',completeness:'PARTIAL',requestBytes:0,responseBytes:16,source:{name:'HTTP',protocol:'HTTP',assetId:'host',address:'127.0.0.1',port:80},metadata:{gaps:[]},classification:{status:'UNCLASSIFIED',definitions:[]},chunks:[{id:'chunk',direction:'RESPONSE',sequence:0,bytes:16,capturedAt:new Date().toISOString(),expiresAt:new Date(Date.now()+60000).toISOString(),available:true}],findingIds:[],canReadRaw:false,canExportRaw:false};
+ const html=renderToStaticMarkup(<AccessObservationDetails value={value} onRefresh={()=>{}}/>);
+ expect(html).toContain('已隐藏');expect(html).not.toContain('PRIVATE-RAW');
+ const rawButtons=(html.match(/<button[^>]*>[\s\S]*?<\/button>/g)||[]).filter(button=>button.includes('查看原文')||button.includes('下载分段'));
+ expect(rawButtons).toHaveLength(2);for(const button of rawButtons)expect(button).toContain('disabled');
 });

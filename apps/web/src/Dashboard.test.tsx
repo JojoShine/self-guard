@@ -21,3 +21,5 @@ it('counts only unconfirmed records and links to exactly that state',async()=>{
  expect(html).toContain('没有待确认记录不代表已完成安全检查');
  expect(html.indexOf('待确认')).toBeLessThan(html.indexOf('主机资产'));
 });
+
+it('shows collection readiness for public browsing as well',()=>{const html=renderToStaticMarkup(<Dashboard demo overview={overview} onOpen={()=>{}} onMetric={()=>{}}/>);expect(html).toContain('采集');expect(html).toContain('核查');expect(html).toContain('采集与检查覆盖');});

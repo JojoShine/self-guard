@@ -1,3 +1,4 @@
+import {isPublicReadOnlyUser} from './public-demo';
 import {platformBaseURL,validPlatformURL} from './platform-path';
 import {platformInstallationBody} from './agent-platform';
 import {runPasswordSsh,RemoteSshError} from './remote-ssh';
@@ -59,7 +60,7 @@ export class SshInstallationService implements OnModuleInit,OnModuleDestroy{
  constructor(@Inject(Db) private db:Db,@Inject(InstallationService)private installations:InstallationService){}
  onModuleInit(){this.timer=setInterval(()=>void this.tick(),5000);this.timer.unref();}
  onModuleDestroy(){if(this.timer)clearInterval(this.timer);}
- async list(user:any,q:any){const v=parse(componentPageInput,q),where:any=user.role==='ADMIN'?{}:{ownerId:user.id};
+ async list(user:any,q:any){const v=parse(componentPageInput,q),where:any=user.role==='ADMIN'||isPublicReadOnlyUser(user)?{}:{ownerId:user.id};
  if(restricted(user)){const businesses=user.dataScope.businesses||[],assetIds=user.dataScope.assetIds||[];const allowed=await this.db.$queryRaw<Array<{id:string}>>`SELECT b.id FROM "AgentInstallBatch" b WHERE b."ownerId"=${user.id} AND NOT EXISTS (SELECT 1 FROM "AgentInstallTarget" t LEFT JOIN "Asset" a ON a.id=t."assetId" WHERE t."batchId"=b.id AND (a.id IS NULL OR NOT (a.id=ANY(${assetIds}::text[]) OR COALESCE(a.business=ANY(${businesses}::text[]),FALSE))))`;where.id={in:allowed.map(b=>b.id)};}
  const[rows,total]=await Promise.all([this.db.agentInstallBatch.findMany({where,include:{targets:{orderBy:{ordinal:'asc'}}},take:v.pageSize,skip:(v.page-1)*v.pageSize,orderBy:[{createdAt:'desc'},{id:'asc'}]}),this.db.agentInstallBatch.count({where})]);return {items:rows.map(safeBatch),total};}
  async create(user:any,body:unknown){if(!['ADMIN','OPERATOR'].includes(user.role))throw new ForbiddenException();const v=parse(sshDeploymentInput,body);if(new Set(v.targets.map(t=>t.assetId)).size!==v.targets.length)throw new BadRequestException('目标不能重复');

@@ -40,7 +40,8 @@ import {WafRuleLibraryPanel} from './WafRuleLibraryPanel';
 import {AgentInstallationPanel} from './AgentInstallationPanel';
 import {paginationDefaults,readPageSize,pageWithinTotal} from './pagination';
 import {LoginView} from "./LoginView";
-import {DemoWorkspace} from "./DemoWorkspace";
+import {PublicReadOnlyNotice} from "./PublicReadOnlyNotice";
+import {isPublicReadOnly} from "./public-read-only";
 import {Brand} from "./Brand";
 import {DesignSystemPage} from "./DesignSystemPage";
 import {OperationGuide} from "./OperationGuide";
@@ -223,6 +224,8 @@ function Application() {
   const [note, setNote] = useState("");
   const [detailError, setDetailError] = useState("");
   const isAdmin = user?.role === "ADMIN";
+  const publicReadOnly = isPublicReadOnly(user);
+  const canWrite = !!user && user.role!=="VIEWER" && !publicReadOnly;
   const saved = useViews();
   const [density, setDensity] = useState<"small" | "middle" | "large">("middle");
   const [advancedOpen,setAdvancedOpen]=useState(false);
@@ -298,7 +301,7 @@ function Application() {
       const updated = await api("/" + target + "/" + encodeURIComponent(r.id));
       if (!current()) return;
       setDetail(updated);
-      if (user?.email!=="demo@selfguard.local" && ["findings", "incidents", "tasks", "assets"].includes(target)) {
+      if (["findings", "incidents", "tasks", "assets"].includes(target)) {
         const c = await api(`/${target}/${r.id}/comments`);
         if (current()) setComments(c.items || c);
         const files = await api(`/${target}/${r.id}/attachments`);
@@ -393,7 +396,7 @@ function Application() {
         const data = await api("/operations/" + opsRoutes[page]);
         if (current()) setOps(data);
       } else if (page === "overview" || page === "reports") {
-        const data = await loadCoreOverview(user?.email==="demo@selfguard.local" ? path=>path.startsWith("/database-instances?")||path.startsWith("/access-observations?")?Promise.resolve({items:[],total:0}):api(path) : api);
+        const data = await loadCoreOverview(api);
         if (current()) setOverview(data);
       } else if (supported.includes(resource)) {
         const query = applySecurityPageQuery(page,queryParams(q,sev,status,number,extraFilters,pageSize));
@@ -581,7 +584,6 @@ function Application() {
     </Form.Item>
   );
   if (!session.token)return <LoginView busy={busy} error={error} onSubmit={async values=>{setBusy(true);setError('');try{const data=await api('/auth/login',values);session.setToken(data.token);if(values.email.toLowerCase()==='demo@selfguard.local')navigate('overview')}catch(e){setError((e as Error).message)}finally{setBusy(false)}}}/>;
-  if (user?.email==='demo@selfguard.local')return <DemoWorkspace key={session.token} onLogout={async()=>{try{await api('/auth/logout',{})}finally{session.setToken('')}}}/>;
   if (page==='operation-guide')return <OperationGuide onReturn={()=>navigate(guideReturn)}/>;
   const baseColumns = [
     {
@@ -739,7 +741,7 @@ function Application() {
   ];
   return (
     <Layout className="app-shell" style={{ minHeight: "100dvh" }}>
-      <TopNavigation page={page} onNavigate={navigate} demo={user?.email==="demo@selfguard.local"}>
+      <TopNavigation page={page} onNavigate={navigate}>
           <Space size={16} className="top-actions">
             <Button type="text" className="guide-entry" aria-label="操作指南" icon={<ReadOutlined/>} onClick={()=>{setGuideReturn(location.hash.slice(1)||page);navigate('operation-guide')}}>操作指南</Button>
             <Avatar size={30} className="account-avatar">{user?.name?.slice(0,1)||'用'}</Avatar>
@@ -761,6 +763,7 @@ function Application() {
           </Space>
       </TopNavigation>
       <Layout.Content className="page">
+        {publicReadOnly&&<PublicReadOnlyNotice/>}
         <DetailWorkspace key={page} title={names[page]||'工作台'}>
           <div className="page-breadcrumb"><Breadcrumb items={[{title:'安全运营'},{title:activeGroup||names[page]||'工作台'},...(activeStrategySection?[{title:activeStrategySection.label}]:[]),...(activeGroup&&activeGroup!==names[page]?[{title:names[page]}]:[])]}/></div>
           <div className="heading">
@@ -772,8 +775,8 @@ function Application() {
               {page==='business'&&!!user&&['ADMIN','ANALYST'].includes(user.role)&&(user.role==='ADMIN'||user.dataScope?.restricted!==true)?<BusinessGroupCreateButton onCreated={()=>void refresh()}/>:undefined}
               {page!=="design-system"&&!modulePages.includes(page)&&<Button icon={<ReloadOutlined/>} onClick={() => void refresh()}>刷新</Button>}
               {page==="sites"&&isAdmin&&<HostWafSetup/>}
-              {!modulePages.includes(page)&&['assets','findings','incidents','rules','tasks','sites','discoveries'].includes(resource)&&<Button onClick={async()=>{try{const query=applySecurityPageQuery(page,queryParams(q,sev,status,number,extraFilters,pageSize));query.set('resource',resource);if(page==='risks'||page==='alerts')query.set('kind',page==='risks'?'RISK':'ALERT');if(page==='approvals')query.set('status','PENDING');if(page==='baseline')query.set('kind','BASELINE');const result=await api('/workflows/export?'+query);const url=URL.createObjectURL(new Blob([JSON.stringify(result,null,2)],{type:'application/json'}));const a=document.createElement('a');a.href=url;a.download='selfguard-'+resource+'.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);if(result.truncated)message.warning('已导出前10000条，文件中已标记截断');}catch(e){setError((e as Error).message)}}}>导出筛选结果</Button>}
-              {!modulePages.includes(page)&&(["assets", "incidents", "rules", "tasks", "sites"].includes(
+              {!publicReadOnly&&!modulePages.includes(page)&&['assets','findings','incidents','rules','tasks','sites','discoveries'].includes(resource)&&<Button onClick={async()=>{try{const query=applySecurityPageQuery(page,queryParams(q,sev,status,number,extraFilters,pageSize));query.set('resource',resource);if(page==='risks'||page==='alerts')query.set('kind',page==='risks'?'RISK':'ALERT');if(page==='approvals')query.set('status','PENDING');if(page==='baseline')query.set('kind','BASELINE');const result=await api('/workflows/export?'+query);const url=URL.createObjectURL(new Blob([JSON.stringify(result,null,2)],{type:'application/json'}));const a=document.createElement('a');a.href=url;a.download='selfguard-'+resource+'.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);if(result.truncated)message.warning('已导出前10000条，文件中已标记截断');}catch(e){setError((e as Error).message)}}}>导出筛选结果</Button>}
+              {canWrite&&!modulePages.includes(page)&&(["assets", "incidents", "rules", "tasks", "sites"].includes(
                 resource,
               ) ||
                 (resource === "users" && isAdmin)) && (
@@ -781,7 +784,7 @@ function Application() {
                   {({assets:'添加资产',incidents:'创建调查',rules:'创建规则',tasks:'创建任务',sites:'添加站点',users:'添加用户'} as Record<string,string>)[resource]||'新建'}
                 </Button>
               )}
-              {!securityScope&&!modulePages.includes(page)&&["findings", "discoveries"].includes(resource) && (
+              {canWrite&&!securityScope&&!modulePages.includes(page)&&["findings", "discoveries"].includes(resource) && (
                 <Button
                   type="primary"
                   onClick={() => {
@@ -806,7 +809,7 @@ function Application() {
           )}
           <div className="module-page">
           {retiredModule(page)?<RetiredModule page={page}/>:<><CoreModuleTools page={page} scope={auditScope}/></>}
-          {!retiredModule(page)&&(page==="network-hosts"?<HostTrafficWorkspace canManage={!!user&&['ADMIN','OPERATOR'].includes(user.role)} onAsset={id=>void showDetail({id},'assets')} onConfigure={record=>openAssetAction(record,'capture')}/>:page==="network-sensors"?<NetworkSensorsPanel canManage={!!user&&['ADMIN','OPERATOR'].includes(user.role)} onAsset={id=>void showDetail({id},'assets')} onFinding={id=>void showDetail({id},'findings')}/>:page==="data-access"?<AccessObservationsPanel onScopeChange={updateAuditScope}/>:page==="data-access-sources"?<AccessSourcesPanel onScopeChange={updateAuditScope}/>:page==="asset-candidates"?<AssetDiscoveryPanel/>:page==="database-instances"?<DatabaseInstancesPanel/>:page==="data-classification"?<DataClassificationPanel/>:page==="database-audit"?<DatabaseAuditPanel onScopeChange={updateAuditScope}/>:page==="rule-sources-status"?<RuleSourceStatusPanel/>:page==="waf-rules"?<WafRuleLibraryPanel/>:page==="enroll"?<AgentInstallationPanel/>:page==="design-system"?<DesignSystemPage/>:page==="data-security"?<DatabaseRulesPage/>:["rule-scope","rule-test"].includes(page)?<RuleToolsPanel key={page} mode={page==="rule-scope"?"scope":"test"}/>: page==="certificates"?<CertificatePanel/>:["rollouts","webhook","deliveries","backup"].includes(page)?<CompletionPanel onOpenFinding={id=>void showDetail({id},"findings")} key={page} section={page}/>: ["correlation","telemetry","policy-test"].includes(page)?<CorrelationPanel key={page} mode={page==="correlation"?"rules":page as "telemetry"|"policy-test"}/>:page==="sources"?<AdvisoryPanel/>:page==="scans"?<VulnerabilityWorkspace/>:page==="batches"?<WorkflowBatchPanel/>:["governance","retention","imports","notifications"].includes(page)?<div className="module-stack"><GovernancePanel onOpenFinding={id=>void showDetail({id},"findings")} key={page} section={page}/>{page==="retention"&&<StoragePanel/>}</div>:opsRoutes[page] ? (
+          {!retiredModule(page)&&(page==="network-hosts"?<HostTrafficWorkspace canManage={!!user&&['ADMIN','OPERATOR'].includes(user.role)} onAsset={id=>void showDetail({id},'assets')} onConfigure={record=>openAssetAction(record,'capture')}/>:page==="network-sensors"?<NetworkSensorsPanel canManage={!!user&&['ADMIN','OPERATOR'].includes(user.role)} onAsset={id=>void showDetail({id},'assets')} onFinding={id=>void showDetail({id},'findings')}/>:page==="data-access"?<AccessObservationsPanel onScopeChange={updateAuditScope}/>:page==="data-access-sources"?<AccessSourcesPanel onScopeChange={updateAuditScope}/>:page==="asset-candidates"?<AssetDiscoveryPanel/>:page==="database-instances"?<DatabaseInstancesPanel/>:page==="data-classification"?<DataClassificationPanel/>:page==="database-audit"?<DatabaseAuditPanel onScopeChange={updateAuditScope}/>:page==="rule-sources-status"?<RuleSourceStatusPanel/>:page==="waf-rules"?<WafRuleLibraryPanel/>:page==="enroll"?<AgentInstallationPanel/>:page==="design-system"?<DesignSystemPage/>:page==="data-security"?<DatabaseRulesPage/>:["rule-scope","rule-test"].includes(page)?<RuleToolsPanel key={page} mode={page==="rule-scope"?"scope":"test"}/>: page==="certificates"?<CertificatePanel/>:["rollouts","webhook","deliveries","backup"].includes(page)?<CompletionPanel readOnly={publicReadOnly||user?.role==="VIEWER"} onOpenFinding={id=>void showDetail({id},"findings")} key={page} section={page}/>: ["correlation","telemetry","policy-test"].includes(page)?<CorrelationPanel key={page} mode={page==="correlation"?"rules":page as "telemetry"|"policy-test"}/>:page==="sources"?<AdvisoryPanel/>:page==="scans"?<VulnerabilityWorkspace/>:page==="batches"?<WorkflowBatchPanel/>:["governance","retention","imports","notifications"].includes(page)?<div className="module-stack"><GovernancePanel onOpenFinding={id=>void showDetail({id},"findings")} key={page} section={page}/>{page==="retention"&&<StoragePanel/>}</div>:opsRoutes[page] ? (
             <Spin spinning={loading}>
               <ModuleSection title={({business:'业务分组概览',trends:'发现与处置趋势',exports:'历史导出记录',credentials:'组件凭据状态',operations:'平台运行状态'} as Record<string,string>)[page]||names[page]}>
                 {ops ? (
@@ -987,7 +990,7 @@ function Application() {
           ) : page === "reports" ? <ReportPanel /> : page === "overview" ? (
             <Spin spinning={loading}>
               {overview ? (
-                <Dashboard demo={user?.email==="demo@selfguard.local"} overview={overview} onOpen={r=>void showDetail(r,'findings')} onMetric={group=>navigate(dashboardDestination(group))}/>
+                <Dashboard overview={overview} onOpen={r=>void showDetail(r,'findings')} onMetric={group=>navigate(dashboardDestination(group))}/>
               ) : (
                 !loading && <Empty description="尚未取得概览数据，请重试" />
               )}
@@ -1190,7 +1193,7 @@ function Application() {
           >
             {detail && (
               <>
-                {detailResource==='assets'&&<nav className="asset-detail-navigation module-navigation" aria-label="资产详情模块">{[{key:'overview',label:'资产概览'},{key:'resources',label:'资源监控'},{key:'network',label:'服务、端口与流量'},{key:'inventory',label:'软件与运行清单'},{key:'history',label:'变更历史'},{key:'relations',label:'核查备注'},{key:'raw',label:'原始字段'}].filter(tab=>user?.email!=="demo@selfguard.local"||tab.key==='overview').map(tab=><button type="button" key={tab.key} aria-current={assetDetailTab===tab.key?'page':undefined} onClick={()=>setAssetDetailTab(tab.key)}>{tab.label}</button>)}</nav>}
+                {detailResource==='assets'&&<nav className="asset-detail-navigation module-navigation" aria-label="资产详情模块">{[{key:'overview',label:'资产概览'},{key:'resources',label:'资源监控'},{key:'network',label:'服务、端口与流量'},{key:'inventory',label:'软件与运行清单'},{key:'history',label:'变更历史'},{key:'relations',label:'核查备注'},{key:'raw',label:'原始字段'}].map(tab=><button type="button" key={tab.key} aria-current={assetDetailTab===tab.key?'page':undefined} onClick={()=>setAssetDetailTab(tab.key)}>{tab.label}</button>)}</nav>}
                 {detailResource!=='assets'||assetDetailTab==='overview'?<RecordSummary record={detail} resource={detailResource}/>:null}
  <SecurityContext key={"context"+detailResource+detail.id} record={detail} resource={detailResource} onOpen={(record,target)=>void showDetail(record,target)}/>
  <RecordWorkflowEditor onOpenFinding={id=>void showDetail({id},"findings")} simple currentUserEmail={user?.email} key={detailResource+detail.id} record={{...detail,id:detail.id,kind:detail.kind,status:detail.status}} resource={detailResource} canEdit={["ADMIN","ANALYST"].includes(user?.role||"")} onChanged={updated=>{if(renderedDetailVersion!==detailRequestVersion.current)return;setDetail({...detail,...updated});void refresh();}}/>
@@ -1213,7 +1216,7 @@ function Application() {
                       查看关联风险
                     </Button>
                   )}
-                  {detailResource === "rules" &&
+                  {canWrite && detailResource === "rules" &&
                     detail.kind === "VULNERABILITY" && (
                       <Button
                         onClick={() => {
@@ -1224,7 +1227,7 @@ function Application() {
                         运行软件漏洞检测
                       </Button>
                     )}
-                  {(["rules", "sites"].includes(detailResource) ||
+                  {canWrite && (["rules", "sites"].includes(detailResource) ||
                     (detailResource === "users" && isAdmin)) && (
                     <Button onClick={()=>editDetail()}>编辑配置</Button>
                   )}
@@ -1251,7 +1254,7 @@ function Application() {
                       </Button>
                     </>
                   )}
-                  {detailResource === "tasks" &&
+                  {canWrite && detailResource === "tasks" &&
                     detail.status === "PENDING" && (
                       <>
                         <InlineRecordAction key={'approve:'+detail.id} label="批准" title="批准受控文件变更" description="审批后 Agent 可以领取并执行此任务。请核对当前目标、路径和变更参数；执行成功仍须独立复测。" confirmLabel="确认批准" onConfirm={async()=>{const updated=await api(`/tasks/${detail.id}/approve`,{});setDetail(current=>current?.id===detail.id?updated:current);message.success('任务已批准，等待 Agent 领取');await refresh();}}/>
@@ -1265,7 +1268,7 @@ function Application() {
                         </Button>
                       </>
                     )}
-                  {detailResource === "tasks" &&
+                  {canWrite && detailResource === "tasks" &&
                     detail.status === "VERIFYING" && (
                       <Button
                         onClick={() => {
@@ -1276,7 +1279,7 @@ function Application() {
                         提交独立复测
                       </Button>
                     )}
-                  {["rules", "sites"].includes(detailResource) && (
+                  {canWrite && ["rules", "sites"].includes(detailResource) && (
                     <Button
                       onClick={() =>
                         void action(
@@ -1290,7 +1293,7 @@ function Application() {
                     </Button>
                   )}
                   {detailResource === "sites" && detail.ruleDeploymentId && detail.mode==='OBSERVE' && <Button onClick={()=>{setDetail(undefined);navigate('waf-rules');}}>在规则发布中切换阻断</Button>}
-                  {detailResource === "sites" && !(detail.ruleDeploymentId && detail.mode==='OBSERVE') && (
+                  {canWrite && detailResource === "sites" && !(detail.ruleDeploymentId && detail.mode==='OBSERVE') && (
                     <Button loading={busy} danger={detail.mode==='OBSERVE'} onClick={()=>void action(`/sites/${detail.id}`,{mode:detail.mode==='OBSERVE'?'BLOCK':'OBSERVE'},'PATCH')}>
                       {detail.mode==='OBSERVE'?'切换为阻断':'切换为观察'}
                     </Button>
@@ -1353,13 +1356,14 @@ function Application() {
                     />
                     <Input.TextArea
                       aria-label="处理备注"
+                      disabled={!canWrite}
                       value={note}
                       onChange={(e) => setNote(e.target.value)}
                       rows={3}
                     />
                     <Button
                       style={{ marginTop: 8 }}
-                      disabled={!note.trim()}
+                      disabled={!canWrite||!note.trim()}
                       onClick={async () => {
                         try {
                           await api(
@@ -1459,6 +1463,7 @@ function Application() {
                           render: (_: unknown, file: Row) => (
                             <Button
                               type="link"
+                              disabled={publicReadOnly}
                               onClick={async () => {
                                 try {
                                   const result = await api(

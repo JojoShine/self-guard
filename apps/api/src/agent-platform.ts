@@ -1,4 +1,5 @@
 import {platformBaseURL,platformEndpoint,validPlatformURL} from './platform-path';
+import {isPublicReadOnlyUser} from './public-demo';
 import {Body,Controller,Get,Post,Req,UseGuards,Inject,BadRequestException} from '@nestjs/common';import {z} from 'zod';import {randomUUID,X509Certificate} from 'node:crypto';import {get as getHTTPS} from 'node:https';import {get as getHTTP} from 'node:http';import {Db} from './db';import {AuthGuard,allow} from './auth';import {parse} from './validation';
 const connectionInput=z.object({server:z.string().url().max(2048).refine(validPlatformURL,'请使用安全平台的 HTTP 或 HTTPS 部署入口，可包含部署子路径'),caCertificate:z.string().max(32000).optional().refine(s=>{if(!s)return true;try{const certs=s.match(/-----BEGIN CERTIFICATE-----[\s\S]+?-----END CERTIFICATE-----/g);return !!certs?.length&&s.replace(/-----BEGIN CERTIFICATE-----[\s\S]+?-----END CERTIFICATE-----/g,'').trim()===''&&certs.every(c=>new X509Certificate(c).ca)}catch{return false}},'需要受信 CA 的 PEM 证书')}).strict();
 export async function platformIdentity(db:Db){const key='agent-platform:identity';const row=await db.setting.upsert({where:{key},create:{key,value:{instanceId:randomUUID()}},update:{}});return {platform:'selfguard',instanceId:(row.value as any).instanceId}}
@@ -9,7 +10,14 @@ export async function platformInstallationBody(db:Db,body:unknown){const config=
 export class AgentPlatformController{
  constructor(@Inject(Db)private db:Db){}
  @Get('identity')identity(){return platformIdentity(this.db)}
- @Get()@UseGuards(AuthGuard)async options(@Req()req:any){let config=await configuredPlatform(this.db);let reason='平台尚未发布经过验证的 HTTP 或 HTTPS 接入入口，请由部署管理员完成一次平台接入配置';const candidate=process.env.AGENT_PLATFORM_URL;
+ @Get()@UseGuards(AuthGuard)async options(@Req()req:any){
+ if(isPublicReadOnlyUser(req.user)){
+  const [connection,identity]=await Promise.all([this.db.setting.findUnique({where:{key:'agent-platform:connection'}}),this.db.setting.findUnique({where:{key:'agent-platform:identity'}})]);
+  const value=z.object({server:z.string().refine(validPlatformURL),instanceId:z.string().uuid(),verifiedAt:z.string().datetime()}).safeParse(connection?.value),stored=z.object({instanceId:z.string().uuid()}).safeParse(identity?.value);
+  const configured=value.success&&stored.success&&value.data.instanceId===stored.data.instanceId&&(!process.env.AGENT_PLATFORM_URL||platformBaseURL(value.data.server)===platformBaseURL(process.env.AGENT_PLATFORM_URL));
+  return{configured,server:configured?value.data.server:null,verifiedAt:configured?value.data.verifiedAt:null,caCertificate:undefined,canConfigure:false,reason:configured?null:'平台接入尚未完成配置'};
+ }
+ let config=await configuredPlatform(this.db);let reason='平台尚未发布经过验证的 HTTP 或 HTTPS 接入入口，请由部署管理员完成一次平台接入配置';const candidate=process.env.AGENT_PLATFORM_URL;
  if(!config&&candidate){try{config=await this.saveConfiguration({server:candidate,caCertificate:process.env.AGENT_PLATFORM_CA_PEM||undefined},'deployment');}catch(e){reason=e instanceof BadRequestException?e.message:'部署接入地址无效，请检查配置'}}
  return {configured:!!config,server:config?.server||null,caCertificate:config?.caCertificate||undefined,verifiedAt:config?.verifiedAt||null,canConfigure:req.user.role==='ADMIN'&&!candidate,reason:config?null:reason};}
  private async saveConfiguration(body:unknown,actor:string){const value=parse(connectionInput,body),identity=await platformIdentity(this.db);await verifyPlatformEndpoint(value.server,value.caCertificate,identity.instanceId);const config={server:platformBaseURL(value.server),caCertificate:new URL(value.server).protocol==='https:'?value.caCertificate||'':'',instanceId:identity.instanceId,verifiedAt:new Date().toISOString()};await this.db.$transaction(async tx=>{await tx.setting.upsert({where:{key:'agent-platform:connection'},create:{key:'agent-platform:connection',value:config},update:{value:config}});await tx.audit.create({data:{actor,action:'PLATFORM_CONNECTION_VERIFIED',resource:'settings',resourceId:'agent-platform:connection',detail:{server:config.server}}})});return config;}
