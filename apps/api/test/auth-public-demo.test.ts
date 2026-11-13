@@ -94,3 +94,8 @@ test('freeform string details stay a renderable string without exposing their or
  const req=request();await guard().canActivate(new ExecutionContextHost([req]));
  assert.deepEqual(redactEvidence(req.user,{details:'private vulnerability details'}),{details:'[已隐藏]'});
 });
+test('public finding contexts keep the explicit hidden-evidence contract at every nesting level',async()=>{
+ const req=request();await guard().canActivate(new ExecutionContextHost([req]));
+ assert.deepEqual(redactEvidence(req.user,{resource:'findings',total:1,evidence:{findings:[{evidence:'private original'}]}}),{resource:'findings',total:1,evidence:'[已隐藏]'});
+ assert.deepEqual(redactEvidence(req.user,{items:[{id,evidence:'private original'}]}),{items:[{id,evidence:'[已隐藏]'}]});
+});

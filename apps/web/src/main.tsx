@@ -301,7 +301,7 @@ function Application() {
       const updated = await api("/" + target + "/" + encodeURIComponent(r.id));
       if (!current()) return;
       setDetail(updated);
-      if (["findings", "incidents", "tasks", "assets"].includes(target)) {
+      if (user && !publicReadOnly && user.email!=="demo@selfguard.local" && ["findings", "incidents", "tasks", "assets"].includes(target)) {
         const c = await api(`/${target}/${r.id}/comments`);
         if (current()) setComments(c.items || c);
         const files = await api(`/${target}/${r.id}/attachments`);

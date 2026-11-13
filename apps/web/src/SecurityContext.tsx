@@ -11,8 +11,9 @@ function MissingNetworkContext({findings,assets}:{findings:{source?:string;evide
  return <div className="module-stack"><Alert showIcon type="info" message={inventoryOnly?'本次组件版本发现：网络关系不适用':'当前没有足够证据还原网络关系'} description={inventoryOnly?'这是软件清单与漏洞版本匹配，检查本身不产生业务请求或网络连接；没有链路不等于流量采集故障，也不能证明漏洞被利用。先核对组件版本、适用条件及修复建议。':'本条记录没有可用于关联的完整连接或请求证据。无法仅凭此处判断采集是否缺失，也不能根据风险标题生成攻击链。'}/>{httpCheck&&<p>HTTP 检查请先查看扫描实际连接证据：扫描节点的来源地址、受检服务的目的地址与端口、请求路径及检查时间。若未保存连接证据，先核对授权入口和本次扫描结果；需要重新验证时，仅在已批准范围执行检查，不能把扫描流量视为攻击者流量。<Button href="#scans?view=active">查看网络检查与授权入口</Button></p>}<p className="evidence-secondary">需要调查真实通信时：打开对应主机的持续流量，先核对采集状态、网卡、端口和时间覆盖；在授权范围重现获准请求，再按发生时间及来源与目的 IP、端口查询连接记录。保存双方端点、请求时间和可用的协议或路径，作为后续关联依据。若当时未启用或采集异常，补齐采集后只能验证后续请求，不能补造历史链路。</p><Space wrap>{assets.length?assets.map(asset=><Button key={asset.id} href={'#network-hosts?assetId='+encodeURIComponent(asset.id)}>查看 {asset.hostname} 持续流量</Button>):<Button href="#network-hosts">选择主机查看持续流量</Button>}</Space></div>;
 }
 export function SecurityContextContent({context,record,onOpen}:{context:any;record:any;onOpen:(item:any,resource:string)=>void}){
- if(context.evidence==='[已隐藏]')return <Alert showIcon type="info" message="当前账号没有读取详细证据的权限" description="需获得证据读取授权后，才能查看检测内容和网络关联。"/>;
- const data=context.evidence;
+ const data=context?.evidence;
+ if(data==='[已隐藏]')return <Alert showIcon type="info" message="当前账号没有读取详细证据的权限" description="需获得证据读取授权后，才能查看检测内容和网络关联。"/>;
+ if(!data||typeof data!=='object'||Array.isArray(data)||!Array.isArray(data.findings)||!Array.isArray(data.assets)||!data.network||!Array.isArray(data.network.relations)||!Array.isArray(data.network.missing))return <Alert showIcon type="info" message="详细证据未提供或当前账号不可读取" description="问题记录仍可查看；此状态不代表没有检测证据。"/>;
  const snapshots=[...new Map(data.findings.filter((finding:any)=>finding.source==='vulnerability'&&finding.evidence&&typeof finding.evidence==='object'&&!Array.isArray(finding.evidence)).map((finding:any)=>finding.evidence.hostNetworkSnapshot).filter((snapshot:any)=>snapshot&&typeof snapshot.hostname==='string'&&Array.isArray(snapshot.ports)).map((snapshot:any)=>[snapshot.assetId+'|'+snapshot.inventorySha256,snapshot])).values()] as any[];
  return <div className="security-context-content">
  {data.description&&<section><h3>事件情况</h3><p className="evidence-text">{data.description}</p></section>}

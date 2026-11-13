@@ -4,6 +4,12 @@ const base={resource:'findings',evidence:{assets:[],description:'真实业务异
 it('shows actual findings, affected values and missing network evidence rather than inventing paths',()=>{const html=renderToStaticMarkup(<SecurityContextContent context={base} record={{source:'agent'}} onOpen={()=>{}}/>);for(const text of ['文件权限过宽','0666','0600','/etc/app.conf','当前没有足够证据','建议处理路径'])expect(html).toContain(text);expect(html).not.toContain('已确认攻击链');});
 it('labels configuration relationships and escapes supplied values',()=>{const context={...base,evidence:{...base.evidence,network:{relations:[{kind:'CONFIGURED_ROUTING',from:'shop.example',to:'<script>bad</script>',basis:'当前配置，不证明实际经过'}],missing:[]}}};const html=renderToStaticMarkup(<SecurityContextContent context={context} record={{}} onOpen={()=>{}}/>);expect(html).toContain('上游配置');expect(html).toContain('不证明');expect(html).toContain('&lt;script&gt;');expect(html).not.toContain('<script>');});
 it('explains evidence permissions without claiming the record has no evidence',()=>{const html=renderToStaticMarkup(<SecurityContextContent context={{evidence:'[已隐藏]'}} record={{}} onOpen={()=>{}}/>);expect(html).toContain('没有读取详细证据的权限');expect(html).not.toContain('暂无证据');});
+it('does not crash when public metadata omits evidence or returns an incomplete context',()=>{
+ for(const context of [undefined,null,{}, {resource:'findings',total:1},{evidence:{}},{evidence:{findings:[],assets:[]}}]){
+  const html=renderToStaticMarkup(<SecurityContextContent context={context} record={{}} onOpen={()=>{}}/>);
+  expect(html).toContain('详细证据');expect(html).not.toContain('暂无证据');
+ }
+});
 it('shows actual WAF field explanations inside findings and labels historical routing',()=>{
  const inspection={complete:true,nodeId:'edge-1',siteVersion:2,bundleId:'selfguard-builtin-v1',bundleSha256:'a'.repeat(64),score:0,decisionStatus:403,evidence:[{ruleId:'SQLI',variable:'ARGS:q',messageTemplate:'输入命中SQL查询组合',valueSha256:'b'.repeat(64),valueBytes:12}]};
  const context={...base,evidence:{...base.evidence,findings:[{id:'waf-alert',title:'SQL注入特征',source:'waf',evidence:JSON.stringify({action:'BLOCK',inspection})}],network:{relations:[{kind:'CONFIGURED_ROUTING_SNAPSHOT',from:'past.example',to:'https://past-backend.example',basis:'当时策略；本次未转发'}],missing:[]}}};

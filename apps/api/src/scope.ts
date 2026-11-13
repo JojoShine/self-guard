@@ -77,6 +77,7 @@ function publicMetadata(value:unknown):unknown{
  if(typeof value!=='object')return value;
  return Object.fromEntries(Object.entries(value).flatMap(([key,entry])=>{
   const normalized=key.replace(/[^a-z0-9]/gi,'').toLowerCase();
+  if(normalized==='evidence')return [[key,'[已隐藏]']];
   if(/^can[A-Z_]/.test(key))return [[key,false]];
   if(normalized==='value'&&(typeof entry==='number'||typeof entry==='boolean'))return [[key,entry]];
   if(normalized==='result'&&typeof entry==='string'&&['SUCCESS','FAILURE','UNKNOWN'].includes(entry))return [[key,entry]];
