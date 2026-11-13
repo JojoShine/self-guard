@@ -13,7 +13,7 @@ import {
   HttpCode,
   Inject,
 } from "@nestjs/common";
-import {DEMO_EMAIL,DEMO_SETTING,safeDemoAccount,demoRequestAllowed,markPublicReadOnlyUser,isPublicReadOnlyUser} from "./public-demo";
+import {DEMO_EMAIL,DEMO_SETTING,safeDemoAccount,demoRequestAllowed,demoGlobalMetadataAllowed,markPublicReadOnlyUser,isPublicReadOnlyUser} from "./public-demo";
 import { Db } from "./db";
 import { checkPassword, hashToken, newToken, equalSecret } from "./security";
 import { parse } from "./validation";
@@ -36,7 +36,7 @@ export class AuthGuard implements CanActivate {
     if (s.user.email === DEMO_EMAIL) {
       const setting = await this.db.setting.findUnique({where:{key:DEMO_SETTING}});
       const config=safeDemoAccount(setting?.value,s.user);
-      if (!config || !demoRequestAllowed(req.method,req.path,process.env.BASE_PATH||"",config.accessMode))
+      if (!config || !demoRequestAllowed(req.method,req.path,process.env.BASE_PATH||"",config.accessMode,config.restricted))
         throw new ForbiddenException("公开账号仅可读取获准的页面信息，不能执行操作或读取原始证据");
       publicReadOnly=config.accessMode==='FULL_READ_ONLY'&&req.method==='GET';
     }
@@ -47,7 +47,7 @@ export class AuthGuard implements CanActivate {
       role: s.user.role,
       dataScope: s.user.dataScope,
     };
-    if(publicReadOnly)markPublicReadOnlyUser(req.user);
+    if(publicReadOnly)markPublicReadOnlyUser(req.user,demoGlobalMetadataAllowed(req.path,process.env.BASE_PATH||''));
     return true;
   }
 }
@@ -56,7 +56,7 @@ export function bearer(req: any) {
   return typeof h === "string" && h.startsWith("Bearer ") ? h.slice(7) : "";
 }
 export function allow(req: any, roles: string[]) {
-  if(isPublicReadOnlyUser(req.user)&&req.method==='GET'&&demoRequestAllowed(req.method,req.path,process.env.BASE_PATH||'','FULL_READ_ONLY'))return;
+  if(isPublicReadOnlyUser(req.user)&&req.method==='GET'&&demoRequestAllowed(req.method,req.path,process.env.BASE_PATH||'','FULL_READ_ONLY',req.user.dataScope?.restricted===true))return;
   if (!roles.includes(req.user?.role))
     throw new ForbiddenException("没有执行此操作的权限");
 }

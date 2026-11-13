@@ -3,7 +3,7 @@ import { map } from 'rxjs/operators';
 import { Injectable, NestInterceptor, ExecutionContext, CallHandler, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { z } from 'zod';
-import {isPublicReadOnlyUser} from './public-demo';
+import {isPublicReadOnlyUser,isPublicGlobalReader} from './public-demo';
 
 export const dataScopeInput = z.object({
   databaseInstanceIds: z.array(z.string().uuid()).max(1000).default([]),
@@ -18,7 +18,7 @@ export const dataScopeInput = z.object({
 export function restricted(user: any) { return user?.role !== 'ADMIN' && user?.dataScope?.restricted === true; }
 export function evidenceAllowed(user: any) { return isPublicReadOnlyUser(user) || user?.role === 'ADMIN' || user?.dataScope?.canReadEvidence !== false; }
 export function assertEvidence(user: any) { if (!evidenceAllowed(user)) throw new ForbiddenException('没有读取证据的权限'); }
-export function assertGlobal(user: any) { if (restricted(user)) throw new ForbiddenException('此操作需要完整数据范围'); }
+export function assertGlobal(user: any) { if (restricted(user)&&!isPublicGlobalReader(user)) throw new ForbiddenException('此操作需要完整数据范围'); }
 export function assetScope(user: any): any {
   if (!restricted(user)) return {};
   return { OR: [{ business: { in: user.dataScope.businesses || [] } }, { id: { in: user.dataScope.assetIds || [] } }] };
@@ -29,7 +29,7 @@ export async function resourceWhere(db: any, user: any, resource: string): Promi
   if (!restricted(user)) return {};
   const assets = assetScope(user);
   if (resource === 'assets') return assets;
-  if (resource === 'findings') return {OR:[{instanceId:null,asset:{is:assets}},{instance:{is:instanceScope(user)}}]};
+  if (resource === 'findings') return isPublicReadOnlyUser(user)?{AND:[{OR:[{assetId:null},{asset:{is:assets}}]},{OR:[{instanceId:null},{instance:{is:instanceScope(user)}}]},{OR:[{assetId:{not:null}},{instanceId:{not:null}}]}]}:{OR:[{instanceId:null,asset:{is:assets}},{instance:{is:instanceScope(user)}}]};
   if (resource === 'tasks') return { asset: { is: assets } };
   if (resource === 'rules') return {};
   if (resource === 'evaluations') {
@@ -78,6 +78,7 @@ function publicMetadata(value:unknown):unknown{
  return Object.fromEntries(Object.entries(value).flatMap(([key,entry])=>{
   const normalized=key.replace(/[^a-z0-9]/gi,'').toLowerCase();
   if(normalized==='evidence')return [[key,'[已隐藏]']];
+  if(normalized==='applicability'||normalized==='exceptions')return [];
   if(/^can[A-Z_]/.test(key))return [[key,false]];
   if(normalized==='value'&&(typeof entry==='number'||typeof entry==='boolean'))return [[key,entry]];
   if(normalized==='result'&&typeof entry==='string'&&['SUCCESS','FAILURE','UNKNOWN'].includes(entry))return [[key,entry]];

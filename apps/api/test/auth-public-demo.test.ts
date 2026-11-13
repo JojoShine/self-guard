@@ -4,7 +4,7 @@ import {ExecutionContextHost} from '@nestjs/core/helpers/execution-context-host'
 import {AuthGuard,allow} from '../src/auth';
 import {Db} from '../src/db';
 import {DEMO_EMAIL,isPublicReadOnlyUser} from '../src/public-demo';
-import {assertEvidence,evidenceAllowed,redactEvidence} from '../src/scope';
+import {assertEvidence,assertGlobal,evidenceAllowed,redactEvidence,resourceWhere} from '../src/scope';
 import {canReadDatabaseSql} from '../src/database-sql';
 import {assertDatabaseSql} from '../src/database-sql';
 import {AccessObservationService} from '../src/access-observation';
@@ -98,4 +98,14 @@ test('public finding contexts keep the explicit hidden-evidence contract at ever
  const req=request();await guard().canActivate(new ExecutionContextHost([req]));
  assert.deepEqual(redactEvidence(req.user,{resource:'findings',total:1,evidence:{findings:[{evidence:'private original'}]}}),{resource:'findings',total:1,evidence:'[已隐藏]'});
  assert.deepEqual(redactEvidence(req.user,{items:[{id,evidence:'private original'}]}),{items:[{id,evidence:'[已隐藏]'}]});
+});
+test('scoped public readers retain only their asset and instance grants and safe global library access',async()=>{
+ const account={...user,dataScope:{...scope,restricted:true,assetIds:[id],databaseInstanceIds:[]}},config={...setting,assetIds:[id],databaseInstanceIds:[]};
+ const req=request();await guard(account,config).canActivate(new ExecutionContextHost([req]));
+ assert.deepEqual(await resourceWhere(new Db(),req.user,'assets'),{OR:[{business:{in:[]}},{id:{in:[id]}}]});
+ assert.throws(()=>assertGlobal(req.user));
+ const library=request('GET','/vulnerability-workspace/lookup');await guard(account,config).canActivate(new ExecutionContextHost([library]));assert.doesNotThrow(()=>assertGlobal(library.user));
+ assert.throws(()=>assertGlobal({...library.user}));
+ for(const route of ['/rollouts','/probe-deployments','/storage','/active-scan-plans','/scan-endpoints','/users/'+id])await assert.rejects(guard(account,config).canActivate(new ExecutionContextHost([request('GET',route)])));
+ assert.deepEqual(redactEvidence(req.user,{config:{applicability:{assetIds:['private-host']},exceptions:[{assetId:'private-host'}],interval:60}}),{config:{interval:60}});
 });

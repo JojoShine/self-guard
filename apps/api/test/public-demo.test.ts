@@ -33,3 +33,14 @@ test('global profile permits only enumerated metadata GETs and logout across the
  for(const route of ['/demo-workspace','/operations/credentials','/agent/policy','/waf/config','/access-probe/configuration','/sensor-ingest/'+id+'/config','/data-security/events/'+id+'/sql','/access-observations/'+id+'/sql','/access-observations/'+id+'/chunks/'+id,'/agent-releases/'+id+'/download','/workflows/export','/reports/summary','/reports/detailed','/assets/'+id+'/attachments/'+id,'/vulnerability-feeds/'+id+'/snapshots/'+id+'/artifact','/active-scan-plans/checks/'+id,'/assets/'+id+'/','/assets/../users'])assert.equal(demoRequestAllowed('GET','/api'+route,'','FULL_READ_ONLY'),false,route);
  assert.equal(demoRequestAllowed('GET','/api/assets','/self-guard','FULL_READ_ONLY'),false);
 });
+test('full navigation may use an explicitly matched asset and database allowlist',()=>{
+ const config={...fullSetting,assetIds:[id],databaseInstanceIds:[]},account={...fullUser,dataScope:{...fullUser.dataScope,restricted:true,assetIds:[id]}};
+ assert.equal(safeDemoAccount(config,account)?.accessMode,'FULL_READ_ONLY');
+ assert.equal(safeDemoAccount({...config,assetIds:[]},account),null);
+ assert.equal(safeDemoAccount({...config,databaseInstanceIds:[id]},account),null);
+ assert.equal(safeDemoAccount({...config,assetIds:[id,id]},account),null);
+});
+test('scoped full navigation blocks unscoped host records while retaining scoped reads and independent libraries',()=>{
+ for(const route of ['/assets','/findings/'+id,'/database-instances/'+id,'/access-observations','/network-sensors','/probe-rule-library','/vulnerability-workspace/lookup'])assert.equal(demoRequestAllowed('GET','/api'+route,'','FULL_READ_ONLY',true),true,route);
+ for(const route of ['/rollouts','/active-scan-plans','/scan-endpoints','/probe-deployments','/storage','/maintenance/backup','/users/'+id])assert.equal(demoRequestAllowed('GET','/api'+route,'','FULL_READ_ONLY',true),false,route);
+});
