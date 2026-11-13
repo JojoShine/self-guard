@@ -90,3 +90,7 @@ test('network template samples hide raw service banners while retaining byte cou
  const sample={name:'network sample',expectedMatched:true,banner:'private service reply',bannerPreview:'private service preview',bannerBytes:4096,status:'CONNECTED'};
  assert.deepEqual(redactEvidence(req.user,{samples:[sample],input:{samples:[sample]}}),{samples:[{name:'network sample',expectedMatched:true,bannerBytes:4096,status:'CONNECTED'}],input:{samples:[{name:'network sample',expectedMatched:true,bannerBytes:4096,status:'CONNECTED'}]}});
 });
+test('freeform string details stay a renderable string without exposing their original text',async()=>{
+ const req=request();await guard().canActivate(new ExecutionContextHost([req]));
+ assert.deepEqual(redactEvidence(req.user,{details:'private vulnerability details'}),{details:'[已隐藏]'});
+});

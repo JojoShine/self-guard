@@ -80,7 +80,7 @@ function publicMetadata(value:unknown):unknown{
   if(/^can[A-Z_]/.test(key))return [[key,false]];
   if(normalized==='value'&&(typeof entry==='number'||typeof entry==='boolean'))return [[key,entry]];
   if(normalized==='result'&&typeof entry==='string'&&['SUCCESS','FAILURE','UNKNOWN'].includes(entry))return [[key,entry]];
-  if(normalized==='details')return [[key,publicMetadata(entry&&typeof entry==='object'&&!Array.isArray(entry)?Object.fromEntries(Object.entries(entry).filter(([field])=>publicAuditFields.has(field))):{})]];
+  if(normalized==='details')return [[key,typeof entry==='string'?'[已隐藏]':publicMetadata(entry&&typeof entry==='object'&&!Array.isArray(entry)?Object.fromEntries(Object.entries(entry).filter(([field])=>publicAuditFields.has(field))):{})]];
   if(typeof entry==='boolean'&&/(?:configured|status|valid|issued|enabled)$/.test(normalized))return [[key,entry]];
   if(publicPrivateFields.has(normalized)||/password|passwd|secret|token|credential|privatekey|publickey|hostkey|apikey|encryptionkey|signingkey|ciphertext|hash|sha256|sqltext|sqlstatement|statementtext|rawsql|requestbody|responsebody|requestbase64|responsebase64|bodybase64|rawrequest|rawresponse|headers|authorization|cookie/.test(normalized))return [];
   return [[key,publicMetadata(entry)]];
